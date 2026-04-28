@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FerretRAG</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">F</div>
+          <div>
+            <h1>FerretRAG</h1>
+            <p>Slinking through your files</p>
+          </div>
+        </div>
+
+        <section class="panel">
+          <h2>Folders</h2>
+          <label for="folderPath" class="form-label">Folder path</label>
+          <input
+            id="folderPath"
+            class="form-control"
+            placeholder="D:\Documents\Knowledge"
+            autocomplete="off"
+          />
+          <button id="indexButton" class="btn btn-lime w-100 mt-3">Index Folder</button>
+          <p id="indexStatus" class="status-text mt-3">No folder indexed yet.</p>
+        </section>
+
+        <section class="panel">
+          <h2>Status</h2>
+          <dl class="status-grid">
+            <div>
+              <dt>Server</dt>
+              <dd id="serverStatus">Checking</dd>
+            </div>
+            <div>
+              <dt>Model</dt>
+              <dd id="modelStatus">Checking</dd>
+            </div>
+            <div>
+              <dt>Chunks</dt>
+              <dd id="chunkStatus">0</dd>
+            </div>
+          </dl>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Local-first document chat</p>
+            <h2>Ask your files</h2>
+          </div>
+          <button id="refreshHealth" class="btn btn-outline-light">Refresh</button>
+        </header>
+
+        <section id="messages" class="messages" aria-live="polite">
+          <article class="message assistant">
+            <p>
+              Add a folder path, index it, then ask a question. Everything runs against local files.
+            </p>
+          </article>
+        </section>
+
+        <form id="chatForm" class="chat-form">
+          <input
+            id="messageInput"
+            class="form-control"
+            placeholder="What should I find?"
+            autocomplete="off"
+          />
+          <button class="btn btn-blue" type="submit">Send</button>
+        </form>
+
+        <section class="sources-panel">
+          <h2>Sources</h2>
+          <div id="sources" class="sources-list">Relevant snippets will appear here.</div>
+        </section>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

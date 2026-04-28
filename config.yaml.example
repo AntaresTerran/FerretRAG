@@ -1,0 +1,15 @@
+server:
+  host: 127.0.0.1
+  port: 8765
+  open_browser: true
+
+model:
+  path: models/gemma-4-E2B-it-UD-IQ3_XXS.gguf
+  n_ctx: 4096
+  gpu_layers: auto
+
+index:
+  data_dir: data
+  chunk_words: 300
+  chunk_overlap: 50
+  top_k: 5
