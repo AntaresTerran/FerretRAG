@@ -41,6 +41,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def home() -> FileResponse:
         return FileResponse(ui_dir / "index.html")
 
+    @app.get("/favicon.ico")
+    def favicon() -> FileResponse:
+        return FileResponse(icons_dir / "icon_round.png")
+
     @app.get("/api/health")
     def health() -> dict[str, object]:
         return {
