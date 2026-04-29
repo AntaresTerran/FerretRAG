@@ -30,9 +30,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     )
     chat = LocalChatEngine(app_config.model.path)
     ui_dir = Path(__file__).resolve().parents[1] / "ui"
+    icons_dir = Path(__file__).resolve().parents[2] / "icons"
 
     app = FastAPI(title="FerretRAG", version="0.1.0")
     app.mount("/static", StaticFiles(directory=ui_dir), name="static")
+    if icons_dir.exists():
+        app.mount("/icons", StaticFiles(directory=icons_dir), name="icons")
 
     @app.get("/")
     def home() -> FileResponse:

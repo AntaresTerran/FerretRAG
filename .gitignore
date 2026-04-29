@@ -15,6 +15,7 @@ dist/
 build/
 *.spec
 *.exe
+icon_ideas/
 
 models/*.gguf
 !models/.gitkeep

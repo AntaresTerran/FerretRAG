@@ -92,14 +92,11 @@ body {
 }
 
 .brand-mark {
-  display: grid;
   width: 48px;
   height: 48px;
-  place-items: center;
   border-radius: 50%;
-  background: #ffffff;
-  color: var(--deep-purple);
-  font-weight: 800;
+  object-fit: cover;
+  box-shadow: 0 10px 24px rgb(0 0 0 / 22%);
 }
 
 .brand h1,
