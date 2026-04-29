@@ -231,6 +231,12 @@ body {
   gap: 12px;
 }
 
+.chat-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .sources-panel {
   padding: 18px;
 }
@@ -276,8 +282,16 @@ body {
   font-weight: 700;
 }
 
+.btn-secondary {
+  border: 1px solid #cfd5dc;
+  color: var(--charcoal);
+  background: #ffffff;
+  font-weight: 700;
+}
+
 .btn-lime:hover,
-.btn-blue:hover {
+.btn-blue:hover,
+.btn-secondary:hover {
   filter: brightness(0.94);
 }
 

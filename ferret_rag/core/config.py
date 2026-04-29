@@ -6,7 +6,9 @@ from typing import Any
 
 import yaml
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+from ferret_rag.core.paths import app_root
+
+PROJECT_ROOT = app_root()
 
 
 @dataclass(frozen=True)

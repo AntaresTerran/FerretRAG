@@ -3,23 +3,39 @@ const indexButton = document.querySelector("#indexButton");
 const indexStatus = document.querySelector("#indexStatus");
 const serverStatus = document.querySelector("#serverStatus");
 const modelStatus = document.querySelector("#modelStatus");
+const runtimeStatus = document.querySelector("#runtimeStatus");
 const chunkStatus = document.querySelector("#chunkStatus");
 const refreshHealth = document.querySelector("#refreshHealth");
+const modelSelect = document.querySelector("#modelSelect");
+const selectModelButton = document.querySelector("#selectModelButton");
+const modelDetail = document.querySelector("#modelDetail");
 const chatForm = document.querySelector("#chatForm");
 const messageInput = document.querySelector("#messageInput");
 const messages = document.querySelector("#messages");
 const sources = document.querySelector("#sources");
+const copyAnswerButton = document.querySelector("#copyAnswerButton");
+const clearChatButton = document.querySelector("#clearChatButton");
+
+let lastAnswer = "";
 
 async function refreshStatus() {
   try {
-    const response = await fetch("/api/health");
-    const data = await response.json();
-    serverStatus.textContent = data.status;
-    modelStatus.textContent = data.model_exists ? "Found" : "Missing";
-    chunkStatus.textContent = data.chunks;
+    const [healthResponse, modelsResponse] = await Promise.all([
+      fetch("/api/health"),
+      fetch("/api/models"),
+    ]);
+    const health = await healthResponse.json();
+    const models = await modelsResponse.json();
+    serverStatus.textContent = health.status;
+    modelStatus.textContent = health.model_exists ? "Found" : "Missing";
+    runtimeStatus.textContent = health.model_compatible ? "Ready" : "Check";
+    runtimeStatus.title = health.runtime_message;
+    chunkStatus.textContent = health.chunks;
+    renderModels(models.models || [], models.selected_model);
   } catch (error) {
     serverStatus.textContent = "Offline";
     modelStatus.textContent = "Unknown";
+    runtimeStatus.textContent = "Unknown";
   }
 }
 
@@ -31,6 +47,30 @@ function addMessage(role, text) {
   article.appendChild(paragraph);
   messages.appendChild(article);
   messages.scrollTop = messages.scrollHeight;
+  if (role === "assistant") {
+    lastAnswer = text;
+  }
+}
+
+function renderModels(items, selectedModel) {
+  modelSelect.innerHTML = "";
+  if (!items.length) {
+    modelDetail.textContent = "No GGUF files found in models.";
+    return;
+  }
+
+  for (const item of items) {
+    const option = document.createElement("option");
+    option.value = item.path;
+    option.textContent = `${item.name} (${item.status})`;
+    option.selected = item.path === selectedModel;
+    option.disabled = !item.is_compatible;
+    modelSelect.appendChild(option);
+  }
+
+  const selected = items.find((item) => item.path === selectedModel) || items[0];
+  const sizeGb = (selected.size_bytes / 1024 / 1024 / 1024).toFixed(2);
+  modelDetail.textContent = `${selected.architecture || "unknown"} - ${sizeGb} GB - ${selected.status}`;
 }
 
 function renderSources(items) {
@@ -81,6 +121,9 @@ indexButton.addEventListener("click", async () => {
       throw new Error(data.detail || "Indexing failed.");
     }
     indexStatus.textContent = `${data.files_indexed} indexed, ${data.files_skipped} skipped, ${data.files_failed} failed.`;
+    if (data.failures?.length) {
+      indexStatus.textContent += ` First failure: ${data.failures[0].error}`;
+    }
     await refreshStatus();
   } catch (error) {
     indexStatus.textContent = error.message;
@@ -97,7 +140,10 @@ chatForm.addEventListener("submit", async (event) => {
   }
 
   addMessage("user", message);
+  addMessage("assistant", "Thinking...");
+  const pendingMessage = messages.lastElementChild;
   messageInput.value = "";
+  messageInput.disabled = true;
   try {
     const response = await fetch("/api/chat", {
       method: "POST",
@@ -108,11 +154,57 @@ chatForm.addEventListener("submit", async (event) => {
     if (!response.ok) {
       throw new Error(data.detail || "Chat failed.");
     }
-    addMessage("assistant", data.answer);
+    pendingMessage.querySelector("p").textContent = data.answer;
+    lastAnswer = data.answer;
     renderSources(data.sources || []);
   } catch (error) {
-    addMessage("assistant", error.message);
+    pendingMessage.querySelector("p").textContent = error.message;
+    lastAnswer = error.message;
+  } finally {
+    messageInput.disabled = false;
+    messageInput.focus();
   }
+});
+
+selectModelButton.addEventListener("click", async () => {
+  const path = modelSelect.value;
+  if (!path) {
+    modelDetail.textContent = "Choose a model first.";
+    return;
+  }
+
+  selectModelButton.disabled = true;
+  modelDetail.textContent = "Switching model...";
+  try {
+    const response = await fetch("/api/model", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || "Model switch failed.");
+    }
+    modelDetail.textContent = data.runtime.message;
+    await refreshStatus();
+  } catch (error) {
+    modelDetail.textContent = error.message;
+  } finally {
+    selectModelButton.disabled = false;
+  }
+});
+
+copyAnswerButton.addEventListener("click", async () => {
+  if (!lastAnswer) {
+    return;
+  }
+  await navigator.clipboard.writeText(lastAnswer);
+});
+
+clearChatButton.addEventListener("click", () => {
+  messages.innerHTML = "";
+  sources.textContent = "Relevant snippets will appear here.";
+  lastAnswer = "";
 });
 
 refreshHealth.addEventListener("click", refreshStatus);

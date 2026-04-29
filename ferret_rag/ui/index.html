@@ -43,10 +43,22 @@
               <dd id="modelStatus">Checking</dd>
             </div>
             <div>
+              <dt>Runtime</dt>
+              <dd id="runtimeStatus">Checking</dd>
+            </div>
+            <div>
               <dt>Chunks</dt>
               <dd id="chunkStatus">0</dd>
             </div>
           </dl>
+        </section>
+
+        <section class="panel">
+          <h2>Model</h2>
+          <label for="modelSelect" class="form-label">Local GGUF</label>
+          <select id="modelSelect" class="form-control"></select>
+          <button id="selectModelButton" class="btn btn-blue w-100 mt-3">Use Model</button>
+          <p id="modelDetail" class="status-text mt-3">Loading local models...</p>
         </section>
       </aside>
 
@@ -76,6 +88,10 @@
           />
           <button class="btn btn-blue" type="submit">Send</button>
         </form>
+        <div class="chat-actions">
+          <button id="copyAnswerButton" class="btn btn-secondary" type="button">Copy Answer</button>
+          <button id="clearChatButton" class="btn btn-secondary" type="button">Clear Chat</button>
+        </div>
 
         <section class="sources-panel">
           <h2>Sources</h2>

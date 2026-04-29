@@ -8,9 +8,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ferret_rag.core.config import AppConfig
+from ferret_rag.core.paths import app_root, resource_root
 from ferret_rag.index.store import LocalIndex
 from ferret_rag.llm.engine import LocalChatEngine
-from ferret_rag.llm.gguf import read_gguf_architecture
 
 
 class IndexRequest(BaseModel):
@@ -20,6 +20,10 @@ class IndexRequest(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     top_k: int | None = None
+
+
+class ModelSelectRequest(BaseModel):
+    path: str
 
 
 class FailureResponse(BaseModel):
@@ -65,6 +69,9 @@ class HealthResponse(BaseModel):
     status: str
     model_exists: bool
     model_path: str
+    model_architecture: str | None
+    model_compatible: bool
+    runtime_message: str
     chunks: int
 
 
@@ -105,18 +112,36 @@ class ModelInfo(BaseModel):
 
 class ModelsResponse(BaseModel):
     models: list[ModelInfo]
+    selected_model: str
+
+
+class RuntimeResponse(BaseModel):
+    model_path: str
+    model_exists: bool
+    architecture: str | None
+    llama_cpp_available: bool
+    llama_cpp_version: str | None
+    is_compatible: bool
+    last_error: str | None
+    message: str
+
+
+class ModelSelectResponse(BaseModel):
+    status: str
+    runtime: RuntimeResponse
 
 
 def create_app(config: AppConfig | None = None) -> FastAPI:
     app_config = config or AppConfig.load()
+    selected_model_path = app_config.model.path
     index = LocalIndex(
         data_dir=app_config.index.data_dir,
         chunk_words=app_config.index.chunk_words,
         overlap=app_config.index.chunk_overlap,
     )
-    chat = LocalChatEngine(app_config.model.path)
-    ui_dir = Path(__file__).resolve().parents[1] / "ui"
-    icons_dir = Path(__file__).resolve().parents[2] / "icons"
+    chat = LocalChatEngine(selected_model_path)
+    ui_dir = resource_root() / "ferret_rag" / "ui"
+    icons_dir = resource_root() / "icons"
 
     app = FastAPI(title="FerretRAG", version="0.1.0")
     app.mount("/static", StaticFiles(directory=ui_dir), name="static")
@@ -136,10 +161,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/api/health", response_model=HealthResponse)
     def health() -> HealthResponse:
+        runtime = RuntimeResponse(**chat.runtime_status())
         return HealthResponse(
             status="ok",
-            model_exists=app_config.model.path.exists(),
-            model_path=str(app_config.model.path),
+            model_exists=runtime.model_exists,
+            model_path=runtime.model_path,
+            model_architecture=runtime.architecture,
+            model_compatible=runtime.is_compatible,
+            runtime_message=runtime.message,
             chunks=len(index.sources()),
         )
 
@@ -152,7 +181,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 open_browser=app_config.server.open_browser,
             ),
             model=ModelConfigResponse(
-                path=str(app_config.model.path),
+                path=str(chat.model_path),
                 n_ctx=app_config.model.n_ctx,
                 gpu_layers=app_config.model.gpu_layers,
             ),
@@ -166,12 +195,31 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/api/models", response_model=ModelsResponse)
     def get_models() -> ModelsResponse:
-        models_dir = Path(__file__).resolve().parents[2] / "models"
+        models_dir = app_root() / "models"
         models = [
-            _model_info(path, app_config.model.path)
+            _model_info(path, chat.model_path)
             for path in sorted(models_dir.glob("*.gguf"))
         ]
-        return ModelsResponse(models=models)
+        return ModelsResponse(models=models, selected_model=str(chat.model_path))
+
+    @app.get("/api/runtime", response_model=RuntimeResponse)
+    def get_runtime() -> RuntimeResponse:
+        return RuntimeResponse(**chat.runtime_status())
+
+    @app.post("/api/model", response_model=ModelSelectResponse)
+    def select_model(request: ModelSelectRequest) -> ModelSelectResponse:
+        model_path = Path(request.path).expanduser()
+        if not model_path.is_absolute():
+            model_path = app_root() / model_path
+        if model_path.suffix.lower() != ".gguf":
+            raise HTTPException(status_code=400, detail="Model path must point to a GGUF file.")
+        if not model_path.exists():
+            raise HTTPException(status_code=404, detail=f"Model file does not exist: {model_path}")
+        chat.set_model_path(model_path)
+        return ModelSelectResponse(
+            status="selected",
+            runtime=RuntimeResponse(**chat.runtime_status()),
+        )
 
     @app.post("/api/index", response_model=IndexResponse)
     def index_folder(request: IndexRequest) -> IndexResponse:
@@ -207,14 +255,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
 
 def _model_info(path: Path, selected_path: Path) -> ModelInfo:
-    architecture = read_gguf_architecture(path)
-    is_compatible = architecture not in {None, "gemma4"}
+    runtime = LocalChatEngine(path).runtime_status()
+    architecture = runtime["architecture"]
+    is_compatible = bool(runtime["is_compatible"])
     return ModelInfo(
         name=path.name,
         path=str(path),
         size_bytes=path.stat().st_size,
-        architecture=architecture,
+        architecture=architecture if isinstance(architecture, str) else None,
         is_selected=path.resolve() == selected_path.resolve(),
         is_compatible=is_compatible,
-        status="compatible" if is_compatible else "unsupported runtime",
+        status="compatible" if is_compatible else str(runtime["message"]),
     )

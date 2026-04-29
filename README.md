@@ -78,6 +78,12 @@ model:
 
 The app starts a local FastAPI server and opens the UI at `http://127.0.0.1:8765`.
 
+You can also use the development launcher:
+
+```powershell
+scripts\run_dev.cmd --port 8765
+```
+
 ## Test and Lint
 
 ```powershell
@@ -85,12 +91,31 @@ The app starts a local FastAPI server and opens the UI at `http://127.0.0.1:8765
 .venv\Scripts\ruff check .
 ```
 
+## Packaging
+
+Windows packaging is script-based for the release-candidate path:
+
+```powershell
+scripts\build_windows.cmd
+```
+
+The script expects PyInstaller to be installed in the active virtual environment. The PowerShell
+variants are also available, but Windows execution policy may block `.ps1` files. GGUF model files
+are not bundled by default; users should place compatible models under `models/`.
+
+## Release Candidate Docs
+
+- `ROADMAP.md`
+- `docs/QA_CHECKLIST.md`
+- `docs/PRIVACY_CHECKLIST.md`
+- `docs/RELEASE_NOTES_RC.md`
+
 ## Recommended Next Milestones
 
-1. Make the retrieval MVP comfortable: better source display, index progress, and clearer errors.
-2. Get `llama-cpp-python` working with the CPU wheel path.
-3. Switch the chat engine to llama-cpp chat completion once the runtime import succeeds.
-4. Choose a GPU strategy only after CPU inference works.
+1. Validate the Windows packaging script on a clean machine.
+2. Polish model selection persistence.
+3. Decide whether a bundled compatible GGUF is allowed for release.
+4. Choose a GPU strategy after the CPU release candidate is stable.
 
 ## Model File
 

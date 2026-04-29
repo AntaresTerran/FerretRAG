@@ -49,6 +49,37 @@ def test_models_endpoint(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert "models" in response.json()
+    assert "selected_model" in response.json()
+
+
+def test_runtime_endpoint(tmp_path: Path) -> None:
+    config = AppConfig(
+        server=ServerConfig(open_browser=False),
+        model=ModelConfig(path=tmp_path / "missing.gguf"),
+        index=IndexConfig(data_dir=tmp_path / "data"),
+    )
+    client = TestClient(create_app(config))
+
+    response = client.get("/api/runtime")
+
+    assert response.status_code == 200
+    assert response.json()["model_exists"] is False
+
+
+def test_select_model_endpoint(tmp_path: Path) -> None:
+    model = tmp_path / "test.gguf"
+    model.write_bytes(b"not a real gguf")
+    config = AppConfig(
+        server=ServerConfig(open_browser=False),
+        model=ModelConfig(path=tmp_path / "missing.gguf"),
+        index=IndexConfig(data_dir=tmp_path / "data"),
+    )
+    client = TestClient(create_app(config))
+
+    response = client.post("/api/model", json={"path": str(model)})
+
+    assert response.status_code == 200
+    assert response.json()["runtime"]["model_path"] == str(model)
 
 
 def test_favicon_endpoint(tmp_path: Path) -> None:
