@@ -86,6 +86,7 @@ FastAPI app
 - Runtime: `llama-cpp-python`.
 - The model file is ignored by git.
 - Redistribution and bundling terms must be checked before release.
+- Install CPU inference first; GPU acceleration is a later hardware-specific milestone.
 
 ### UI Palette
 

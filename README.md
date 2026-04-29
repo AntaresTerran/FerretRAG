@@ -20,15 +20,33 @@ Windows.
 ## Optional Local LLM Runtime
 
 The retrieval MVP works without `llama-cpp-python`; chat responses will show the most relevant
-local snippets if the runtime is missing. To enable GGUF generation later, install the LLM extra:
+local snippets if the runtime is missing.
+
+For a first Windows test, prefer the official prebuilt CPU wheel index. The requirements file pins
+the wheel version because the newest PyPI release may not have a matching Windows/Python wheel yet:
 
 ```powershell
-.venv\Scripts\pip install -e ".[llm]"
+.venv\Scripts\pip install -r requirements\llm-cpu.txt
+.venv\Scripts\python scripts\check_llm.py
 ```
 
-If pip tries to build `llama-cpp-python` from source and fails with `nmake` or compiler errors,
-install Microsoft Visual Studio Build Tools, or use a prebuilt wheel that matches your Python,
-Windows, and acceleration target.
+At the moment this CPU wheel can install on Python 3.13, but it may be too old for the included
+Gemma 4 GGUF. If `scripts\check_llm.py` reports unknown architecture `gemma4`, the runtime install
+worked but the model needs a newer llama.cpp build.
+
+The project still exposes `.[llm]`, but that uses pip's normal package resolution. On Windows it
+may try to build from source and fail with `nmake`, `CMAKE_C_COMPILER`, or compiler errors. That is
+expected unless Visual Studio Build Tools or MinGW are installed and configured.
+
+GPU acceleration should be handled after the CPU path works. Official CUDA prebuilt wheels require
+a matching Python, Windows, and CUDA combination; if no matching wheel exists, the package must be
+built locally.
+
+Practical paths from here:
+
+- Use a GGUF model architecture supported by the pinned CPU wheel.
+- Install a newer `llama-cpp-python` from source with Visual Studio Build Tools or MinGW.
+- Use a Python/CUDA combination that has a matching newer prebuilt wheel.
 
 ## Run
 
@@ -44,6 +62,13 @@ The app starts a local FastAPI server and opens the UI at `http://127.0.0.1:8765
 .venv\Scripts\pytest
 .venv\Scripts\ruff check .
 ```
+
+## Recommended Next Milestones
+
+1. Make the retrieval MVP comfortable: better source display, index progress, and clearer errors.
+2. Get `llama-cpp-python` working with the CPU wheel path.
+3. Switch the chat engine to llama-cpp chat completion once the runtime import succeeds.
+4. Choose a GPU strategy only after CPU inference works.
 
 ## Model File
 

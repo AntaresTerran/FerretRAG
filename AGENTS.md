@@ -9,6 +9,7 @@
 ## Commands
 - **Install:** `python -m venv .venv` then `.venv\Scripts\pip install -e ".[dev]"`
 - **Optional LLM runtime:** `.venv\Scripts\pip install -e ".[llm]"`
+- **Preferred CPU LLM install:** `.venv\Scripts\pip install -r requirements\llm-cpu.txt`
 - **Dev:** `.venv\Scripts\python -m ferret_rag`
 - **Build:** Packaging is a later milestone. Use PyInstaller once packaging scripts exist.
 - **Test:** `.venv\Scripts\pytest`
