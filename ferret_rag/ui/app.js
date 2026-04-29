@@ -44,14 +44,19 @@ function renderSources(items) {
     const wrapper = document.createElement("article");
     wrapper.className = "source-item";
 
+    const title = document.createElement("div");
+    title.className = "source-path";
+    const location = item.page_num ? `page ${item.page_num}` : item.label || item.file_type;
+    title.textContent = `${item.file_name} - ${location} - chunk ${item.chunk_id}`;
+
     const path = document.createElement("div");
-    path.className = "source-path";
-    path.textContent = `${item.file_path} · chunk ${item.chunk_id}`;
+    path.className = "source-meta";
+    path.textContent = item.file_path;
 
     const text = document.createElement("div");
     text.textContent = item.text.slice(0, 420);
 
-    wrapper.append(path, text);
+    wrapper.append(title, path, text);
     sources.appendChild(wrapper);
   }
 }

@@ -13,15 +13,26 @@ from ferret_rag.index.loaders import discover_files, load_document
 class SourceChunk:
     id: str
     file_path: str
+    file_name: str
+    file_type: str
     chunk_id: int
     text: str
     file_hash: str
+    modified_time: float
+    page_num: int | None = None
+    label: str | None = None
 
 
 @dataclass(frozen=True)
 class SearchResult:
     chunk: SourceChunk
     score: float
+
+
+@dataclass(frozen=True)
+class FileFailure:
+    file_path: str
+    error: str
 
 
 class LocalIndex:
@@ -37,11 +48,12 @@ class LocalIndex:
         self._hashes = self._load_hashes()
         self._chroma = self._connect_chroma()
 
-    def index_folder(self, root: Path) -> dict[str, int]:
+    def index_folder(self, root: Path) -> dict[str, object]:
         files = discover_files(root)
         indexed = 0
         skipped = 0
         failed = 0
+        failures: list[FileFailure] = []
 
         for path in files:
             digest = hash_file(path)
@@ -51,24 +63,34 @@ class LocalIndex:
                 continue
 
             try:
-                text = load_document(path)
-                chunks = chunk_text(text, self.chunk_words, self.overlap)
-            except Exception:
+                sections = load_document(path)
+            except Exception as exc:
                 failed += 1
+                failures.append(FileFailure(file_path=key, error=str(exc)))
                 continue
 
             self._chunks = [chunk for chunk in self._chunks if chunk.file_path != key]
             self._delete_chroma_file(key)
-            for chunk_id, chunk in enumerate(chunks):
-                source_chunk = SourceChunk(
-                    id=hashlib.sha256(f"{key}:{chunk_id}:{digest}".encode()).hexdigest(),
-                    file_path=key,
-                    chunk_id=chunk_id,
-                    text=chunk,
-                    file_hash=digest,
-                )
-                self._chunks.append(source_chunk)
-                self._upsert_chroma(source_chunk)
+            chunk_id = 0
+            modified_time = path.stat().st_mtime
+            for section in sections:
+                chunks = chunk_text(section.text, self.chunk_words, self.overlap)
+                for chunk in chunks:
+                    source_chunk = SourceChunk(
+                        id=hashlib.sha256(f"{key}:{chunk_id}:{digest}".encode()).hexdigest(),
+                        file_path=key,
+                        file_name=path.name,
+                        file_type=path.suffix.lower().lstrip("."),
+                        chunk_id=chunk_id,
+                        text=chunk,
+                        file_hash=digest,
+                        modified_time=modified_time,
+                        page_num=section.page_num,
+                        label=section.label,
+                    )
+                    self._chunks.append(source_chunk)
+                    self._upsert_chroma(source_chunk)
+                    chunk_id += 1
             self._hashes[key] = digest
             indexed += 1
 
@@ -79,6 +101,7 @@ class LocalIndex:
             "files_skipped": skipped,
             "files_failed": failed,
             "chunks_total": len(self._chunks),
+            "failures": [asdict(failure) for failure in failures],
         }
 
     def search(self, query: str, top_k: int = 5) -> list[SearchResult]:
@@ -110,7 +133,7 @@ class LocalIndex:
         if not self.index_file.exists():
             return []
         raw = json.loads(self.index_file.read_text(encoding="utf-8"))
-        return [SourceChunk(**item) for item in raw]
+        return [_source_chunk_from_dict(item) for item in raw]
 
     def _load_hashes(self) -> dict[str, str]:
         if not self.hash_file.exists():
@@ -152,8 +175,13 @@ class LocalIndex:
                 metadatas=[
                     {
                         "file_path": chunk.file_path,
+                        "file_name": chunk.file_name,
+                        "file_type": chunk.file_type,
                         "chunk_id": chunk.chunk_id,
                         "file_hash": chunk.file_hash,
+                        "modified_time": chunk.modified_time,
+                        "page_num": chunk.page_num if chunk.page_num is not None else -1,
+                        "label": chunk.label or "",
                     }
                 ],
             )
@@ -179,9 +207,14 @@ class LocalIndex:
             chunk = SourceChunk(
                 id=item_id,
                 file_path=str(metadata["file_path"]),
+                file_name=str(metadata.get("file_name") or Path(str(metadata["file_path"])).name),
+                file_type=str(metadata.get("file_type") or Path(str(metadata["file_path"])).suffix),
                 chunk_id=int(metadata["chunk_id"]),
                 text=str(document),
                 file_hash=str(metadata["file_hash"]),
+                modified_time=float(metadata.get("modified_time") or 0),
+                page_num=_metadata_page_num(metadata.get("page_num")),
+                label=str(metadata.get("label") or "") or None,
             )
             results.append(SearchResult(chunk=chunk, score=1 / (1 + float(distance))))
         return results
@@ -210,3 +243,27 @@ def _embedding(text: str, dimensions: int = 128) -> list[float]:
     if magnitude == 0:
         return vector
     return [value / magnitude for value in vector]
+
+
+def _source_chunk_from_dict(item: dict[str, object]) -> SourceChunk:
+    file_path = str(item["file_path"])
+    path = Path(file_path)
+    return SourceChunk(
+        id=str(item["id"]),
+        file_path=file_path,
+        file_name=str(item.get("file_name") or path.name),
+        file_type=str(item.get("file_type") or path.suffix.lower().lstrip(".")),
+        chunk_id=int(item["chunk_id"]),
+        text=str(item["text"]),
+        file_hash=str(item["file_hash"]),
+        modified_time=float(item.get("modified_time") or 0),
+        page_num=_metadata_page_num(item.get("page_num")),
+        label=str(item.get("label") or "") or None,
+    )
+
+
+def _metadata_page_num(value: object) -> int | None:
+    if value in (None, "", -1):
+        return None
+    page_num = int(value)
+    return page_num if page_num > 0 else None

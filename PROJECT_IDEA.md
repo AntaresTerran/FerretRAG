@@ -107,21 +107,21 @@ Inspired by the included sleek silver/albino ferret design reference:
 
 ```text
 FerretRAG/
-├─ ferret_rag/
-│  ├─ api/
-│  ├─ core/
-│  ├─ index/
-│  ├─ llm/
-│  └─ ui/
-├─ models/
-├─ data/
-├─ tests/
-├─ scripts/
-├─ AGENTS.md
-├─ README.md
-├─ PROJECT_IDEA.md
-├─ config.yaml.example
-└─ pyproject.toml
+|-- ferret_rag/
+|   |-- api/
+|   |-- core/
+|   |-- index/
+|   |-- llm/
+|   `-- ui/
+|-- models/
+|-- data/
+|-- tests/
+|-- scripts/
+|-- AGENTS.md
+|-- README.md
+|-- PROJECT_IDEA.md
+|-- config.yaml.example
+`-- pyproject.toml
 ```
 
 ## Later Milestones

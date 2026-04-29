@@ -255,6 +255,13 @@ body {
   overflow-wrap: anywhere;
 }
 
+.source-meta {
+  margin-bottom: 8px;
+  color: #6d7782;
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
 .btn-lime {
   border: 0;
   color: #10200d;

@@ -20,6 +20,48 @@ def test_health_endpoint(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+    assert "model_path" in response.json()
+
+
+def test_config_endpoint(tmp_path: Path) -> None:
+    config = AppConfig(
+        server=ServerConfig(open_browser=False),
+        model=ModelConfig(path=tmp_path / "missing.gguf"),
+        index=IndexConfig(data_dir=tmp_path / "data"),
+    )
+    client = TestClient(create_app(config))
+
+    response = client.get("/api/config")
+
+    assert response.status_code == 200
+    assert response.json()["model"]["path"].endswith("missing.gguf")
+
+
+def test_models_endpoint(tmp_path: Path) -> None:
+    config = AppConfig(
+        server=ServerConfig(open_browser=False),
+        model=ModelConfig(path=tmp_path / "missing.gguf"),
+        index=IndexConfig(data_dir=tmp_path / "data"),
+    )
+    client = TestClient(create_app(config))
+
+    response = client.get("/api/models")
+
+    assert response.status_code == 200
+    assert "models" in response.json()
+
+
+def test_favicon_endpoint(tmp_path: Path) -> None:
+    config = AppConfig(
+        server=ServerConfig(open_browser=False),
+        model=ModelConfig(path=tmp_path / "missing.gguf"),
+        index=IndexConfig(data_dir=tmp_path / "data"),
+    )
+    client = TestClient(create_app(config))
+
+    response = client.get("/favicon.ico")
+
+    assert response.status_code in {200, 204}
 
 
 def test_index_and_chat_endpoint(tmp_path: Path) -> None:
@@ -38,4 +80,6 @@ def test_index_and_chat_endpoint(tmp_path: Path) -> None:
 
     assert index_response.status_code == 200
     assert chat_response.status_code == 200
+    assert index_response.json()["failures"] == []
     assert chat_response.json()["sources"]
+    assert chat_response.json()["sources"][0]["file_name"] == "notes.md"

@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
 
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".html", ".htm", ".csv", ".pdf", ".docx", ".xlsx"}
+
+
+@dataclass(frozen=True)
+class DocumentSection:
+    text: str
+    page_num: int | None = None
+    label: str | None = None
 
 
 class _HTMLTextExtractor(HTMLParser):
@@ -36,10 +44,11 @@ def discover_files(root: Path) -> list[Path]:
     )
 
 
-def load_document(path: Path) -> str:
+def load_document(path: Path) -> list[DocumentSection]:
     suffix = path.suffix.lower()
     if suffix in {".txt", ".md"}:
-        return path.read_text(encoding="utf-8", errors="replace")
+        text = path.read_text(encoding="utf-8", errors="replace")
+        return [DocumentSection(text=text)]
     if suffix in {".html", ".htm"}:
         return _load_html(path)
     if suffix == ".csv":
@@ -53,31 +62,35 @@ def load_document(path: Path) -> str:
     raise ValueError(f"Unsupported file type: {path.suffix}")
 
 
-def _load_html(path: Path) -> str:
+def _load_html(path: Path) -> list[DocumentSection]:
     parser = _HTMLTextExtractor()
     parser.feed(path.read_text(encoding="utf-8", errors="replace"))
-    return parser.text()
+    return [DocumentSection(text=parser.text())]
 
 
-def _load_csv(path: Path) -> str:
+def _load_csv(path: Path) -> list[DocumentSection]:
     rows: list[str] = []
     with path.open("r", encoding="utf-8", errors="replace", newline="") as handle:
         for row in csv.reader(handle):
             rows.append(" | ".join(cell.strip() for cell in row if cell.strip()))
-    return "\n".join(row for row in rows if row)
+    return [DocumentSection(text="\n".join(row for row in rows if row))]
 
 
-def _load_pdf(path: Path) -> str:
+def _load_pdf(path: Path) -> list[DocumentSection]:
     try:
         import fitz
     except ImportError as exc:
         raise RuntimeError("PDF parsing requires PyMuPDF. Install project dependencies.") from exc
 
     with fitz.open(path) as document:
-        return "\n".join(page.get_text() for page in document)
+        return [
+            DocumentSection(text=page.get_text(), page_num=page.number + 1)
+            for page in document
+            if page.get_text().strip()
+        ]
 
 
-def _load_docx(path: Path) -> str:
+def _load_docx(path: Path) -> list[DocumentSection]:
     try:
         import docx
     except ImportError as exc:
@@ -91,19 +104,19 @@ def _load_docx(path: Path) -> str:
         for row in table.rows:
             cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
             table_rows.append(" | ".join(cells))
-    return "\n".join([*paragraphs, *table_rows])
+    return [DocumentSection(text="\n".join([*paragraphs, *table_rows]))]
 
 
-def _load_xlsx(path: Path) -> str:
+def _load_xlsx(path: Path) -> list[DocumentSection]:
     try:
         import openpyxl
     except ImportError as exc:
         raise RuntimeError("XLSX parsing requires openpyxl. Install project dependencies.") from exc
 
     workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    lines: list[str] = []
+    sections: list[DocumentSection] = []
     for sheet in workbook.worksheets:
-        lines.append(f"# {sheet.title}")
+        lines: list[str] = []
         for row in sheet.iter_rows(values_only=True):
             cells = [
                 str(value).strip()
@@ -112,5 +125,7 @@ def _load_xlsx(path: Path) -> str:
             ]
             if cells:
                 lines.append(" | ".join(cells))
+        if lines:
+            sections.append(DocumentSection(text="\n".join(lines), label=sheet.title))
     workbook.close()
-    return "\n".join(lines)
+    return sections
