@@ -34,6 +34,13 @@ At the moment this CPU wheel can install on Python 3.13, but it may be too old f
 Gemma 4 GGUF. If `scripts\check_llm.py` reports unknown architecture `gemma4`, the runtime install
 worked but the model needs a newer llama.cpp build.
 
+You can test a specific model file:
+
+```powershell
+.venv\Scripts\python scripts\check_llm.py models\Llama-3.2-1B-Instruct-UD-Q8_K_XL.gguf
+.venv\Scripts\python scripts\check_llm.py models\Qwen3.5-9B-UD-IQ3_XXS.gguf
+```
+
 The project still exposes `.[llm]`, but that uses pip's normal package resolution. On Windows it
 may try to build from source and fail with `nmake`, `CMAKE_C_COMPILER`, or compiler errors. That is
 expected unless Visual Studio Build Tools or MinGW are installed and configured.
@@ -47,6 +54,21 @@ Practical paths from here:
 - Use a GGUF model architecture supported by the pinned CPU wheel.
 - Install a newer `llama-cpp-python` from source with Visual Studio Build Tools or MinGW.
 - Use a Python/CUDA combination that has a matching newer prebuilt wheel.
+
+Known local model status with the pinned CPU wheel:
+
+| Model | Architecture | Status |
+| --- | --- | --- |
+| `gemma-4-E2B-it-UD-IQ3_XXS.gguf` | `gemma4` | Does not load with `llama-cpp-python 0.3.19`. |
+| `Llama-3.2-1B-Instruct-UD-Q8_K_XL.gguf` | `llama` | Loads successfully. |
+| `Qwen3.5-9B-UD-IQ3_XXS.gguf` | `qwen35` | Loads successfully. |
+
+To run the app with a compatible model, copy `config.yaml.example` to `config.yaml` and set:
+
+```yaml
+model:
+  path: models/Qwen3.5-9B-UD-IQ3_XXS.gguf
+```
 
 ## Run
 
@@ -72,13 +94,14 @@ The app starts a local FastAPI server and opens the UI at `http://127.0.0.1:8765
 
 ## Model File
 
-The default local model is expected at:
+The current development default local model is expected at:
 
 ```text
-models/gemma-4-E2B-it-UD-IQ3_XXS.gguf
+models/Qwen3.5-9B-UD-IQ3_XXS.gguf
 ```
 
-GGUF files are ignored by git because they are large. Before shipping a release with a bundled model, verify the model license and redistribution terms.
+GGUF files are ignored by git because they are large. Before shipping a release with a bundled model,
+verify the model license and redistribution terms.
 
 ## MVP Scope
 

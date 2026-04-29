@@ -82,11 +82,13 @@ FastAPI app
 
 ### Local Model
 
-- Default path: `models/gemma-4-E2B-it-UD-IQ3_XXS.gguf`.
+- Development default path: `models/Qwen3.5-9B-UD-IQ3_XXS.gguf`.
+- Original bundled-model candidate: `models/gemma-4-E2B-it-UD-IQ3_XXS.gguf`.
 - Runtime: `llama-cpp-python`.
 - The model file is ignored by git.
 - Redistribution and bundling terms must be checked before release.
 - Install CPU inference first; GPU acceleration is a later hardware-specific milestone.
+- Use Qwen or Llama as development defaults until a newer llama.cpp build supports the Gemma 4 GGUF.
 
 ### UI Palette
 

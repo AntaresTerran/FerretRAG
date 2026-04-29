@@ -2,20 +2,22 @@ from __future__ import annotations
 
 import importlib.util
 import platform
+import sys
 from pathlib import Path
 
 from ferret_rag.llm.gguf import read_gguf_architecture
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MODEL = PROJECT_ROOT / "models" / "gemma-4-E2B-it-UD-IQ3_XXS.gguf"
+DEFAULT_MODEL = PROJECT_ROOT / "models" / "Qwen3.5-9B-UD-IQ3_XXS.gguf"
 
 
 def main() -> None:
+    model_path = _model_path_from_args()
     print(f"Python: {platform.python_version()} ({platform.architecture()[0]})")
     print(f"Platform: {platform.platform()}")
-    print(f"Default model: {DEFAULT_MODEL}")
-    print(f"Model exists: {DEFAULT_MODEL.exists()}")
-    architecture = read_gguf_architecture(DEFAULT_MODEL) if DEFAULT_MODEL.exists() else None
+    print(f"Model: {model_path}")
+    print(f"Model exists: {model_path.exists()}")
+    architecture = read_gguf_architecture(model_path) if model_path.exists() else None
     print(f"Model architecture: {architecture or 'unknown'}")
 
     spec = importlib.util.find_spec("llama_cpp")
@@ -29,8 +31,8 @@ def main() -> None:
     version = getattr(llama_cpp, "__version__", "unknown")
     print(f"llama_cpp import: ok ({version})")
 
-    if not DEFAULT_MODEL.exists():
-        print("Skipping model load because the default GGUF file is missing.")
+    if not model_path.exists():
+        print("Skipping model load because the GGUF file is missing.")
         return
 
     if architecture == "gemma4" and _version_tuple(version) <= (0, 3, 19):
@@ -44,7 +46,7 @@ def main() -> None:
 
     print("Loading model with a tiny context to verify the runtime...")
     try:
-        llm = Llama(model_path=str(DEFAULT_MODEL), n_ctx=512, n_gpu_layers=0, verbose=False)
+        llm = Llama(model_path=str(model_path), n_ctx=512, n_gpu_layers=0, verbose=False)
     except Exception as exc:
         print(f"Model load: failed ({exc})")
         print(
@@ -61,6 +63,16 @@ def main() -> None:
     )
     text = output["choices"][0]["text"].strip()
     print(f"Model response: {text}")
+
+
+def _model_path_from_args() -> Path:
+    if len(sys.argv) <= 1:
+        return DEFAULT_MODEL
+
+    path = Path(sys.argv[1])
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    return path
 
 
 def _version_tuple(version: str) -> tuple[int, ...]:

@@ -18,7 +18,7 @@ class ServerConfig:
 
 @dataclass(frozen=True)
 class ModelConfig:
-    path: Path = PROJECT_ROOT / "models" / "gemma-4-E2B-it-UD-IQ3_XXS.gguf"
+    path: Path = PROJECT_ROOT / "models" / "Qwen3.5-9B-UD-IQ3_XXS.gguf"
     n_ctx: int = 4096
     gpu_layers: str | int = "auto"
 
