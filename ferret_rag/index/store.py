@@ -35,6 +35,16 @@ class FileFailure:
     error: str
 
 
+@dataclass(frozen=True)
+class IndexedFile:
+    file_path: str
+    file_name: str
+    file_type: str
+    chunk_count: int
+    modified_time: float
+    root_path: str | None = None
+
+
 class LocalIndex:
     def __init__(self, data_dir: Path, chunk_words: int = 300, overlap: int = 50) -> None:
         self.data_dir = data_dir
@@ -43,12 +53,15 @@ class LocalIndex:
         self.index_dir = data_dir / "vectors" / "local"
         self.index_file = self.index_dir / "chunks.json"
         self.hash_file = self.index_dir / "hashes.json"
+        self.roots_file = self.index_dir / "roots.json"
         self.index_dir.mkdir(parents=True, exist_ok=True)
         self._chunks = self._load_chunks()
         self._hashes = self._load_hashes()
+        self._roots = self._load_roots()
         self._chroma = self._connect_chroma()
 
     def index_folder(self, root: Path) -> dict[str, object]:
+        root = root.resolve()
         files = discover_files(root)
         indexed = 0
         skipped = 0
@@ -94,6 +107,16 @@ class LocalIndex:
             self._hashes[key] = digest
             indexed += 1
 
+        self._roots[str(root)] = {
+            "path": str(root),
+            "file_count": len(files),
+            "last_result": {
+                "files_found": len(files),
+                "files_indexed": indexed,
+                "files_skipped": skipped,
+                "files_failed": failed,
+            },
+        }
         self._save()
         return {
             "files_found": len(files),
@@ -106,28 +129,104 @@ class LocalIndex:
 
     def search(self, query: str, top_k: int = 5) -> list[SearchResult]:
         chroma_results = self._search_chroma(query, top_k)
+        lexical_results = self._search_lexical(query, top_k=top_k * 2)
         if chroma_results is not None:
-            return chroma_results
+            return _merge_results(chroma_results, lexical_results, top_k)
+        return lexical_results[:top_k]
 
+    def _search_lexical(self, query: str, top_k: int) -> list[SearchResult]:
         query_terms = _terms(query)
         if not query_terms:
             return []
 
         results: list[SearchResult] = []
         for chunk in self._chunks:
-            chunk_terms = _terms(chunk.text)
+            searchable_text = " ".join(
+                [
+                    chunk.text,
+                    chunk.file_name,
+                    chunk.file_type,
+                    Path(chunk.file_path).parent.name,
+                    chunk.label or "",
+                ]
+            )
+            chunk_terms = _terms(searchable_text)
             if not chunk_terms:
                 continue
             overlap = query_terms & chunk_terms
             if not overlap:
                 continue
-            score = len(overlap) / max(len(query_terms), 1)
+            exact_bonus = 0.25 if query.lower() in searchable_text.lower() else 0
+            title_bonus = 0.15 * len(query_terms & _terms(chunk.file_name))
+            score = (len(overlap) / max(len(query_terms), 1)) + exact_bonus + title_bonus
             results.append(SearchResult(chunk=chunk, score=score))
 
         return sorted(results, key=lambda result: result.score, reverse=True)[:top_k]
 
     def sources(self) -> list[SourceChunk]:
         return list(self._chunks)
+
+    def indexed_roots(self) -> list[dict[str, object]]:
+        roots = []
+        for root in self._roots.values():
+            path = str(root["path"])
+            root_chunks = [
+                chunk for chunk in self._chunks if _is_relative_to(chunk.file_path, path)
+            ]
+            roots.append(
+                {
+                    **root,
+                    "active_file_count": len({chunk.file_path for chunk in root_chunks}),
+                    "chunk_count": len(root_chunks),
+                }
+            )
+        return sorted(roots, key=lambda item: str(item["path"]).lower())
+
+    def indexed_files(self) -> list[IndexedFile]:
+        files: dict[str, list[SourceChunk]] = {}
+        for chunk in self._chunks:
+            files.setdefault(chunk.file_path, []).append(chunk)
+
+        indexed: list[IndexedFile] = []
+        for file_path, chunks in files.items():
+            first = chunks[0]
+            indexed.append(
+                IndexedFile(
+                    file_path=file_path,
+                    file_name=first.file_name,
+                    file_type=first.file_type,
+                    chunk_count=len(chunks),
+                    modified_time=first.modified_time,
+                    root_path=_root_for_file(file_path, self._roots.keys()),
+                )
+            )
+        return sorted(indexed, key=lambda item: item.file_path.lower())
+
+    def remove_path(self, path: Path) -> dict[str, int]:
+        target = str(path.resolve())
+        removed_files = {
+            chunk.file_path
+            for chunk in self._chunks
+            if chunk.file_path == target or _is_relative_to(chunk.file_path, target)
+        }
+        removed_chunks = len([chunk for chunk in self._chunks if chunk.file_path in removed_files])
+        self._chunks = [chunk for chunk in self._chunks if chunk.file_path not in removed_files]
+        for file_path in removed_files:
+            self._hashes.pop(file_path, None)
+            self._delete_chroma_file(file_path)
+
+        removed_roots = 0
+        if target in self._roots:
+            self._roots.pop(target, None)
+            removed_roots = 1
+
+        self._save()
+        return {
+            "files_removed": len(removed_files),
+            "chunks_removed": removed_chunks,
+            "roots_removed": removed_roots,
+            "chunks_total": len(self._chunks),
+        }
 
     def _load_chunks(self) -> list[SourceChunk]:
         if not self.index_file.exists():
@@ -140,12 +239,18 @@ class LocalIndex:
             return {}
         return json.loads(self.hash_file.read_text(encoding="utf-8"))
 
+    def _load_roots(self) -> dict[str, dict[str, object]]:
+        if not self.roots_file.exists():
+            return {}
+        return json.loads(self.roots_file.read_text(encoding="utf-8"))
+
     def _save(self) -> None:
         self.index_file.write_text(
             json.dumps([asdict(chunk) for chunk in self._chunks], indent=2),
             encoding="utf-8",
         )
         self.hash_file.write_text(json.dumps(self._hashes, indent=2), encoding="utf-8")
+        self.roots_file.write_text(json.dumps(self._roots, indent=2), encoding="utf-8")
 
     def _connect_chroma(self):
         try:
@@ -267,3 +372,33 @@ def _metadata_page_num(value: object) -> int | None:
         return None
     page_num = int(value)
     return page_num if page_num > 0 else None
+
+
+def _merge_results(
+    chroma_results: list[SearchResult],
+    lexical_results: list[SearchResult],
+    top_k: int,
+) -> list[SearchResult]:
+    merged: dict[str, SearchResult] = {}
+    for result in chroma_results:
+        merged[result.chunk.id] = result
+    for result in lexical_results:
+        existing = merged.get(result.chunk.id)
+        if existing is None or result.score > existing.score:
+            merged[result.chunk.id] = result
+    return sorted(merged.values(), key=lambda result: result.score, reverse=True)[:top_k]
+
+
+def _is_relative_to(file_path: str, root_path: str) -> bool:
+    try:
+        Path(file_path).resolve().relative_to(Path(root_path).resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def _root_for_file(file_path: str, roots: object) -> str | None:
+    matching_roots = [root for root in roots if _is_relative_to(file_path, str(root))]
+    if not matching_roots:
+        return None
+    return max(matching_roots, key=len)

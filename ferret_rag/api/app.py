@@ -26,6 +26,10 @@ class ModelSelectRequest(BaseModel):
     path: str
 
 
+class RemoveIndexRequest(BaseModel):
+    path: str
+
+
 class FailureResponse(BaseModel):
     file_path: str
     error: str
@@ -40,6 +44,38 @@ class IndexResponse(BaseModel):
     files_failed: int
     chunks_total: int
     failures: list[FailureResponse]
+
+
+class RemoveIndexResponse(BaseModel):
+    status: str
+    path: str
+    files_removed: int
+    chunks_removed: int
+    roots_removed: int
+    chunks_total: int
+
+
+class IndexedRootResponse(BaseModel):
+    path: str
+    file_count: int
+    active_file_count: int
+    chunk_count: int
+    last_result: dict[str, int]
+
+
+class IndexedFileResponse(BaseModel):
+    file_path: str
+    file_name: str
+    file_type: str
+    chunk_count: int
+    modified_time: float
+    root_path: str | None = None
+
+
+class IndexStateResponse(BaseModel):
+    roots: list[IndexedRootResponse]
+    files: list[IndexedFileResponse]
+    chunks_total: int
 
 
 class SourceResponse(BaseModel):
@@ -230,6 +266,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return IndexResponse(status="indexed", path=str(folder), **stats)
 
+    @app.get("/api/index", response_model=IndexStateResponse)
+    def index_state() -> IndexStateResponse:
+        return IndexStateResponse(
+            roots=[IndexedRootResponse(**root) for root in index.indexed_roots()],
+            files=[IndexedFileResponse(**file.__dict__) for file in index.indexed_files()],
+            chunks_total=len(index.sources()),
+        )
+
+    @app.delete("/api/index", response_model=RemoveIndexResponse)
+    def remove_index(request: RemoveIndexRequest) -> RemoveIndexResponse:
+        path = Path(request.path).expanduser()
+        stats = index.remove_path(path)
+        return RemoveIndexResponse(status="removed", path=str(path), **stats)
+
     @app.get("/api/sources", response_model=SourcesResponse)
     def sources() -> SourcesResponse:
         return SourcesResponse(
@@ -238,7 +288,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.post("/api/chat", response_model=ChatResponse)
     def chat_endpoint(request: ChatRequest) -> ChatResponse:
-        top_k = request.top_k or app_config.index.top_k
+        top_k = request.top_k or max(app_config.index.top_k, 8)
         results = index.search(request.message, top_k=top_k)
         return ChatResponse(
             answer=chat.answer(request.message, results),

@@ -114,3 +114,27 @@ def test_index_and_chat_endpoint(tmp_path: Path) -> None:
     assert index_response.json()["failures"] == []
     assert chat_response.json()["sources"]
     assert chat_response.json()["sources"][0]["file_name"] == "notes.md"
+
+
+def test_index_state_and_remove_endpoint(tmp_path: Path) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    file_path = docs / "notes.md"
+    file_path.write_text("FerretRAG keeps private files local.", encoding="utf-8")
+    config = AppConfig(
+        server=ServerConfig(open_browser=False),
+        model=ModelConfig(path=tmp_path / "missing.gguf"),
+        index=IndexConfig(data_dir=tmp_path / "data", chunk_words=20, chunk_overlap=2),
+    )
+    client = TestClient(create_app(config))
+
+    client.post("/api/index", json={"path": str(docs)})
+    state_response = client.get("/api/index")
+    remove_response = client.request("DELETE", "/api/index", json={"path": str(file_path)})
+    final_state = client.get("/api/index")
+
+    assert state_response.status_code == 200
+    assert state_response.json()["roots"][0]["active_file_count"] == 1
+    assert remove_response.status_code == 200
+    assert remove_response.json()["files_removed"] == 1
+    assert final_state.json()["chunks_total"] == 0

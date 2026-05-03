@@ -161,6 +161,44 @@ body {
   font-weight: 700;
 }
 
+.index-list {
+  display: grid;
+  gap: 8px;
+}
+
+.index-list.compact {
+  margin-top: 12px;
+}
+
+.index-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 8%);
+}
+
+.index-text,
+.index-note {
+  color: #d9dde1;
+  font-size: 0.84rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.icon-button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgb(255 255 255 / 24%);
+  border-radius: 8px;
+  color: #ffffff;
+  background: transparent;
+  cursor: pointer;
+}
+
 .workspace {
   display: grid;
   grid-template-rows: auto minmax(280px, 1fr) auto auto;

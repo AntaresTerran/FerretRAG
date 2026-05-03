@@ -1,6 +1,8 @@
 const folderPath = document.querySelector("#folderPath");
 const indexButton = document.querySelector("#indexButton");
 const indexStatus = document.querySelector("#indexStatus");
+const indexedRoots = document.querySelector("#indexedRoots");
+const indexedFiles = document.querySelector("#indexedFiles");
 const serverStatus = document.querySelector("#serverStatus");
 const modelStatus = document.querySelector("#modelStatus");
 const runtimeStatus = document.querySelector("#runtimeStatus");
@@ -32,11 +34,18 @@ async function refreshStatus() {
     runtimeStatus.title = health.runtime_message;
     chunkStatus.textContent = health.chunks;
     renderModels(models.models || [], models.selected_model);
+    await refreshIndexState();
   } catch (error) {
     serverStatus.textContent = "Offline";
     modelStatus.textContent = "Unknown";
     runtimeStatus.textContent = "Unknown";
   }
+}
+
+async function refreshIndexState() {
+  const response = await fetch("/api/index");
+  const data = await response.json();
+  renderIndexState(data);
 }
 
 function addMessage(role, text) {
@@ -71,6 +80,69 @@ function renderModels(items, selectedModel) {
   const selected = items.find((item) => item.path === selectedModel) || items[0];
   const sizeGb = (selected.size_bytes / 1024 / 1024 / 1024).toFixed(2);
   modelDetail.textContent = `${selected.architecture || "unknown"} - ${sizeGb} GB - ${selected.status}`;
+}
+
+function renderIndexState(data) {
+  indexedRoots.innerHTML = "";
+  indexedFiles.innerHTML = "";
+
+  if (!data.roots?.length) {
+    indexedRoots.textContent = "No folders indexed.";
+  } else {
+    for (const root of data.roots) {
+      indexedRoots.appendChild(indexItem(root.path, `${root.active_file_count} files`, true));
+    }
+  }
+
+  if (data.files?.length) {
+    for (const file of data.files.slice(0, 12)) {
+      indexedFiles.appendChild(
+        indexItem(file.file_path, `${file.file_name} - ${file.chunk_count} chunks`, false),
+      );
+    }
+    if (data.files.length > 12) {
+      const more = document.createElement("div");
+      more.className = "index-note";
+      more.textContent = `${data.files.length - 12} more files indexed.`;
+      indexedFiles.appendChild(more);
+    }
+  }
+}
+
+function indexItem(path, label, isRoot) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "index-item";
+
+  const text = document.createElement("div");
+  text.className = "index-text";
+  text.textContent = label;
+  text.title = path;
+
+  const remove = document.createElement("button");
+  remove.className = "icon-button";
+  remove.type = "button";
+  remove.textContent = "X";
+  remove.title = isRoot ? "Remove folder from index" : "Remove file from index";
+  remove.addEventListener("click", () => removeFromIndex(path));
+
+  wrapper.append(text, remove);
+  return wrapper;
+}
+
+async function removeFromIndex(path) {
+  indexStatus.textContent = "Removing from index...";
+  const response = await fetch("/api/index", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    indexStatus.textContent = data.detail || "Remove failed.";
+    return;
+  }
+  indexStatus.textContent = `${data.files_removed} files removed, ${data.chunks_removed} chunks removed.`;
+  await refreshStatus();
 }
 
 function renderSources(items) {

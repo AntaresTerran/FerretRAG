@@ -103,6 +103,12 @@ The script expects PyInstaller to be installed in the active virtual environment
 variants are also available, but Windows execution policy may block `.ps1` files. GGUF model files
 are not bundled by default; users should place compatible models under `models/`.
 
+Install PyInstaller into this project venv before packaging:
+
+```powershell
+.venv\Scripts\pip install pyinstaller
+```
+
 ## Release Candidate Docs
 
 - `ROADMAP.md`

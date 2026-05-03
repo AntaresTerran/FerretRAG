@@ -31,6 +31,9 @@ Run this before tagging a release candidate.
 - Mixed folder with TXT, MD, HTML, CSV, PDF, DOCX, XLSX indexes.
 - Broken files are reported in `failures` and do not stop the whole run.
 - Re-indexing unchanged files reports skipped files.
+- Indexed folders and files appear in the Indexed panel.
+- Removing an indexed file removes its chunks from sources and search.
+- Removing an indexed folder removes all files under that folder.
 - Source cards show file name, path, type/page/sheet, chunk id, and snippet.
 
 ## Chat
@@ -44,4 +47,5 @@ Run this before tagging a release candidate.
 ## Packaging Smoke
 
 - `scripts/build_windows.cmd` either builds successfully or gives a clear PyInstaller setup message.
+- PyInstaller must be installed inside this project's `.venv`, not only globally.
 - Packaged app starts on a machine with the documented model setup.

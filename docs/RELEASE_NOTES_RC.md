@@ -8,6 +8,7 @@
 - Chroma-backed retrieval with deterministic local embeddings.
 - Local GGUF chat through `llama-cpp-python` when a compatible runtime and model are installed.
 - Model registry and model switching UI.
+- Indexed folder/file visibility with remove-from-index controls.
 - Source cards with file metadata and snippets.
 - Windows-first development and packaging scripts.
 
@@ -15,6 +16,7 @@
 
 - The pinned Python 3.13 CPU wheel for `llama-cpp-python` supports Qwen and Llama test models but not the current Gemma 4 GGUF.
 - Packaging is a script-based smoke path until PyInstaller details are validated on a clean Windows machine.
+- PyInstaller must be installed into the project virtual environment before running packaging.
 - GPU acceleration is not part of the RC gate.
 - Streaming responses and agentic tools are post-RC.
 
