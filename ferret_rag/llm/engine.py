@@ -115,8 +115,8 @@ class LocalChatEngine:
 
         try:
             import llama_cpp
-        except ImportError:
-            message = "llama-cpp-python is not installed."
+        except Exception as exc:
+            message = f"llama-cpp-python is unavailable: {exc}"
         else:
             llama_available = True
             llama_version = getattr(llama_cpp, "__version__", "unknown")

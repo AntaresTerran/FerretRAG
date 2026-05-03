@@ -26,6 +26,7 @@ if (Test-Path $IconPath) {
     --clean `
     --add-data "ferret_rag\ui;ferret_rag\ui" `
     --add-data "icons;icons" `
+    --add-data ".venv\Lib\site-packages\llama_cpp\lib;llama_cpp\lib" `
     --collect-all chromadb `
     "ferret_rag\__main__.py"
 
