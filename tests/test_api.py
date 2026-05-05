@@ -116,6 +116,76 @@ def test_index_and_chat_endpoint(tmp_path: Path) -> None:
     assert chat_response.json()["sources"][0]["file_name"] == "notes.md"
 
 
+def test_index_single_file_endpoint(tmp_path: Path) -> None:
+    file_path = tmp_path / "notes.md"
+    file_path.write_text("FerretRAG indexes single files too.", encoding="utf-8")
+    config = AppConfig(
+        server=ServerConfig(open_browser=False),
+        model=ModelConfig(path=tmp_path / "missing.gguf"),
+        index=IndexConfig(data_dir=tmp_path / "data", chunk_words=20, chunk_overlap=2),
+    )
+    client = TestClient(create_app(config))
+
+    response = client.post("/api/index", json={"path": str(file_path)})
+    state_response = client.get("/api/index")
+
+    assert response.status_code == 200
+    assert response.json()["files_indexed"] == 1
+    assert state_response.json()["files"][0]["file_name"] == "notes.md"
+
+
+def test_index_rejects_unsupported_single_file(tmp_path: Path) -> None:
+    file_path = tmp_path / "archive.zip"
+    file_path.write_text("not indexable", encoding="utf-8")
+    config = AppConfig(
+        server=ServerConfig(open_browser=False),
+        model=ModelConfig(path=tmp_path / "missing.gguf"),
+        index=IndexConfig(data_dir=tmp_path / "data"),
+    )
+    client = TestClient(create_app(config))
+
+    response = client.post("/api/index", json={"path": str(file_path)})
+
+    assert response.status_code == 400
+    assert "Unsupported file type" in response.json()["detail"]
+
+
+def test_filesystem_endpoint_lists_folders_and_supported_files(tmp_path: Path) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (tmp_path / "notes.md").write_text("index me", encoding="utf-8")
+    (tmp_path / "image.png").write_text("skip me", encoding="utf-8")
+    config = AppConfig(
+        server=ServerConfig(open_browser=False),
+        model=ModelConfig(path=tmp_path / "missing.gguf"),
+        index=IndexConfig(data_dir=tmp_path / "data"),
+    )
+    client = TestClient(create_app(config))
+
+    response = client.get("/api/filesystem", params={"path": str(tmp_path)})
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["current_path"] == str(tmp_path.resolve())
+    assert "docs" in [folder["name"] for folder in body["folders"]]
+    assert [file["name"] for file in body["files"]] == ["notes.md"]
+    assert body["unsupported_files_count"] == 1
+
+
+def test_filesystem_endpoint_rejects_missing_path(tmp_path: Path) -> None:
+    config = AppConfig(
+        server=ServerConfig(open_browser=False),
+        model=ModelConfig(path=tmp_path / "missing.gguf"),
+        index=IndexConfig(data_dir=tmp_path / "data"),
+    )
+    client = TestClient(create_app(config))
+
+    response = client.get("/api/filesystem", params={"path": str(tmp_path / "missing")})
+
+    assert response.status_code == 400
+    assert "Path does not exist" in response.json()["detail"]
+
+
 def test_index_state_and_remove_endpoint(tmp_path: Path) -> None:
     docs = tmp_path / "docs"
     docs.mkdir()

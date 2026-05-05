@@ -44,6 +44,17 @@ def test_index_folder_records_chunk_metadata(tmp_path: Path) -> None:
     assert chunk.modified_time > 0
 
 
+def test_index_path_indexes_supported_file(tmp_path: Path) -> None:
+    path = tmp_path / "notes.txt"
+    path.write_text("ferret search local files", encoding="utf-8")
+    index = LocalIndex(tmp_path / "data", chunk_words=5, overlap=1)
+
+    result = index.index_path(path)
+
+    assert result["files_indexed"] == 1
+    assert index.sources()[0].file_name == "notes.txt"
+
+
 def test_index_folder_reports_failed_files(tmp_path: Path) -> None:
     docs = tmp_path / "docs"
     docs.mkdir()

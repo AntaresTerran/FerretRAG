@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from ferret_rag.index.chunking import chunk_text
-from ferret_rag.index.loaders import discover_files, load_document
+from ferret_rag.index.loaders import SUPPORTED_EXTENSIONS, discover_files, load_document
 
 
 @dataclass(frozen=True)
@@ -69,43 +69,14 @@ class LocalIndex:
         failures: list[FileFailure] = []
 
         for path in files:
-            digest = hash_file(path)
-            key = str(path.resolve())
-            if self._hashes.get(key) == digest:
+            result = self._index_file(path)
+            if result == "indexed":
+                indexed += 1
+            elif result == "skipped":
                 skipped += 1
-                continue
-
-            try:
-                sections = load_document(path)
-            except Exception as exc:
+            else:
                 failed += 1
-                failures.append(FileFailure(file_path=key, error=str(exc)))
-                continue
-
-            self._chunks = [chunk for chunk in self._chunks if chunk.file_path != key]
-            self._delete_chroma_file(key)
-            chunk_id = 0
-            modified_time = path.stat().st_mtime
-            for section in sections:
-                chunks = chunk_text(section.text, self.chunk_words, self.overlap)
-                for chunk in chunks:
-                    source_chunk = SourceChunk(
-                        id=hashlib.sha256(f"{key}:{chunk_id}:{digest}".encode()).hexdigest(),
-                        file_path=key,
-                        file_name=path.name,
-                        file_type=path.suffix.lower().lstrip("."),
-                        chunk_id=chunk_id,
-                        text=chunk,
-                        file_hash=digest,
-                        modified_time=modified_time,
-                        page_num=section.page_num,
-                        label=section.label,
-                    )
-                    self._chunks.append(source_chunk)
-                    self._upsert_chroma(source_chunk)
-                    chunk_id += 1
-            self._hashes[key] = digest
-            indexed += 1
+                failures.append(result)
 
         self._roots[str(root)] = {
             "path": str(root),
@@ -125,6 +96,29 @@ class LocalIndex:
             "files_failed": failed,
             "chunks_total": len(self._chunks),
             "failures": [asdict(failure) for failure in failures],
+        }
+
+    def index_path(self, path: Path) -> dict[str, object]:
+        target = path.resolve()
+        if target.is_dir():
+            return self.index_folder(target)
+        if not target.exists():
+            raise FileNotFoundError(f"Path does not exist: {target}")
+        if not target.is_file():
+            raise ValueError(f"Path is not a supported file or folder: {target}")
+        if target.suffix.lower() not in SUPPORTED_EXTENSIONS:
+            raise ValueError(f"Unsupported file type: {target.suffix or target.name}")
+
+        result = self._index_file(target)
+        failures = [asdict(result)] if isinstance(result, FileFailure) else []
+        self._save()
+        return {
+            "files_found": 1,
+            "files_indexed": 1 if result == "indexed" else 0,
+            "files_skipped": 1 if result == "skipped" else 0,
+            "files_failed": 1 if failures else 0,
+            "chunks_total": len(self._chunks),
+            "failures": failures,
         }
 
     def search(self, query: str, top_k: int = 5) -> list[SearchResult]:
@@ -227,6 +221,42 @@ class LocalIndex:
             "roots_removed": removed_roots,
             "chunks_total": len(self._chunks),
         }
+
+    def _index_file(self, path: Path) -> str | FileFailure:
+        digest = hash_file(path)
+        key = str(path.resolve())
+        if self._hashes.get(key) == digest:
+            return "skipped"
+
+        try:
+            sections = load_document(path)
+        except Exception as exc:
+            return FileFailure(file_path=key, error=str(exc))
+
+        self._chunks = [chunk for chunk in self._chunks if chunk.file_path != key]
+        self._delete_chroma_file(key)
+        chunk_id = 0
+        modified_time = path.stat().st_mtime
+        for section in sections:
+            chunks = chunk_text(section.text, self.chunk_words, self.overlap)
+            for chunk in chunks:
+                source_chunk = SourceChunk(
+                    id=hashlib.sha256(f"{key}:{chunk_id}:{digest}".encode()).hexdigest(),
+                    file_path=key,
+                    file_name=path.name,
+                    file_type=path.suffix.lower().lstrip("."),
+                    chunk_id=chunk_id,
+                    text=chunk,
+                    file_hash=digest,
+                    modified_time=modified_time,
+                    page_num=section.page_num,
+                    label=section.label,
+                )
+                self._chunks.append(source_chunk)
+                self._upsert_chroma(source_chunk)
+                chunk_id += 1
+        self._hashes[key] = digest
+        return "indexed"
 
     def _load_chunks(self) -> list[SourceChunk]:
         if not self.index_file.exists():
