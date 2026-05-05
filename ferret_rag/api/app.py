@@ -175,7 +175,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         chunk_words=app_config.index.chunk_words,
         overlap=app_config.index.chunk_overlap,
     )
-    chat = LocalChatEngine(selected_model_path)
+    chat = LocalChatEngine(selected_model_path, n_ctx=app_config.model.n_ctx)
     ui_dir = resource_root() / "ferret_rag" / "ui"
     icons_dir = resource_root() / "icons"
 

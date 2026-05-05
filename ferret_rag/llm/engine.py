@@ -7,8 +7,10 @@ from ferret_rag.llm.gguf import read_gguf_architecture
 
 
 class LocalChatEngine:
-    def __init__(self, model_path: Path) -> None:
+    def __init__(self, model_path: Path, n_ctx: int = 4096, max_tokens: int = 512) -> None:
         self.model_path = model_path
+        self.n_ctx = n_ctx
+        self.max_tokens = max_tokens
         self._llm = None
         self.last_error: str | None = None
 
@@ -64,9 +66,14 @@ class LocalChatEngine:
 
         try:
             if self._llm is None:
-                self._llm = Llama(model_path=str(self.model_path), n_ctx=4096, verbose=False)
+                self._llm = Llama(model_path=str(self.model_path), n_ctx=self.n_ctx, verbose=False)
 
-            context_text = "\n\n".join(result.chunk.text for result in context)
+            context_text = _fit_context_to_budget(
+                question=question,
+                context=context,
+                n_ctx=self.n_ctx,
+                max_tokens=self.max_tokens,
+            )
             if hasattr(self._llm, "create_chat_completion"):
                 response = self._llm.create_chat_completion(
                     messages=[
@@ -82,7 +89,7 @@ class LocalChatEngine:
                             "content": f"Context:\n{context_text}\n\nQuestion: {question}",
                         },
                     ],
-                    max_tokens=512,
+                    max_tokens=self.max_tokens,
                 )
             else:
                 prompt = (
@@ -90,7 +97,12 @@ class LocalChatEngine:
                     "If the answer is not in the context, say so.\n\n"
                     f"Context:\n{context_text}\n\nQuestion: {question}\nAnswer:"
                 )
-                response = self._llm(prompt, max_tokens=512, stop=["Question:"], echo=False)
+                response = self._llm(
+                    prompt,
+                    max_tokens=self.max_tokens,
+                    stop=["Question:"],
+                    echo=False,
+                )
         except Exception as exc:
             self.last_error = str(exc)
             return None
@@ -158,3 +170,55 @@ def _compatibility_message(architecture: str | None, version: str | None) -> str
     if architecture == "gemma4" and version and _version_tuple(version) <= (0, 3, 19):
         return f"Model architecture 'gemma4' needs a newer llama-cpp-python than {version}."
     return "Model is not compatible with the current runtime."
+
+
+def _fit_context_to_budget(
+    question: str,
+    context: list[SearchResult],
+    n_ctx: int,
+    max_tokens: int,
+) -> str:
+    overhead_tokens = 220
+    question_tokens = _estimate_tokens(question)
+    budget = max(n_ctx - max_tokens - overhead_tokens - question_tokens, 256)
+    parts: list[str] = []
+    used = 0
+
+    for result in context:
+        header = _source_header(result)
+        text = result.chunk.text.strip()
+        candidate = f"{header}\n{text}"
+        candidate_tokens = _estimate_tokens(candidate)
+        remaining = budget - used
+        if remaining <= 0:
+            break
+        if candidate_tokens > remaining:
+            token_budget = max(remaining - _estimate_tokens(header), 32)
+            trimmed_text = _trim_to_token_budget(text, token_budget)
+            if trimmed_text:
+                parts.append(f"{header}\n{trimmed_text}")
+            break
+        parts.append(candidate)
+        used += candidate_tokens
+
+    return "\n\n".join(parts)
+
+
+def _source_header(result: SearchResult) -> str:
+    chunk = result.chunk
+    location = f"page {chunk.page_num}" if chunk.page_num else chunk.label or chunk.file_type
+    return f"[{chunk.file_name} | {location} | chunk {chunk.chunk_id}]"
+
+
+def _trim_to_token_budget(text: str, token_budget: int) -> str:
+    if token_budget <= 0:
+        return ""
+    words = text.split()
+    approx_words = max(int(token_budget / 1.35), 1)
+    return " ".join(words[:approx_words])
+
+
+def _estimate_tokens(text: str) -> int:
+    if not text:
+        return 0
+    return max(int(len(text.split()) * 1.35), int(len(text) / 4))
