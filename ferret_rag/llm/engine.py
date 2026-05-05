@@ -68,43 +68,28 @@ class LocalChatEngine:
             if self._llm is None:
                 self._llm = Llama(model_path=str(self.model_path), n_ctx=self.n_ctx, verbose=False)
 
-            context_text = _fit_context_to_budget(
-                question=question,
-                context=context,
-                n_ctx=self.n_ctx,
-                max_tokens=self.max_tokens,
-            )
-            if hasattr(self._llm, "create_chat_completion"):
-                response = self._llm.create_chat_completion(
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": (
-                                "Answer using only the provided local context. "
-                                "If the answer is not in the context, say so."
-                            ),
-                        },
-                        {
-                            "role": "user",
-                            "content": f"Context:\n{context_text}\n\nQuestion: {question}",
-                        },
-                    ],
+            response = None
+            for context_scale in (1.0, 0.55, 0.3):
+                context_text = _fit_context_to_budget(
+                    question=question,
+                    context=context,
+                    n_ctx=self.n_ctx,
                     max_tokens=self.max_tokens,
+                    context_scale=context_scale,
                 )
-            else:
-                prompt = (
-                    "Use only the local context below to answer the question. "
-                    "If the answer is not in the context, say so.\n\n"
-                    f"Context:\n{context_text}\n\nQuestion: {question}\nAnswer:"
-                )
-                response = self._llm(
-                    prompt,
-                    max_tokens=self.max_tokens,
-                    stop=["Question:"],
-                    echo=False,
-                )
+                try:
+                    response = self._invoke_llama(question, context_text)
+                    break
+                except Exception as exc:
+                    if not _is_context_window_error(exc) or context_scale == 0.3:
+                        raise
+                    self.last_error = f"{exc}; retrying with less retrieved context."
         except Exception as exc:
             self.last_error = str(exc)
+            return None
+
+        if response is None:
+            self.last_error = "llama-cpp-python returned no response."
             return None
 
         choices = response.get("choices", [])
@@ -117,6 +102,37 @@ class LocalChatEngine:
         if "message" in choice:
             return str(choice["message"].get("content", "")).strip() or None
         return str(choice.get("text", "")).strip() or None
+
+    def _invoke_llama(self, question: str, context_text: str) -> dict:
+        if hasattr(self._llm, "create_chat_completion"):
+            return self._llm.create_chat_completion(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Answer using only the provided local context. "
+                            "If the answer is not in the context, say so."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Context:\n{context_text}\n\nQuestion: {question}",
+                    },
+                ],
+                max_tokens=self.max_tokens,
+            )
+
+        prompt = (
+            "Use only the local context below to answer the question. "
+            "If the answer is not in the context, say so.\n\n"
+            f"Context:\n{context_text}\n\nQuestion: {question}\nAnswer:"
+        )
+        return self._llm(
+            prompt,
+            max_tokens=self.max_tokens,
+            stop=["Question:"],
+            echo=False,
+        )
 
     def runtime_status(self) -> dict[str, object]:
         architecture = read_gguf_architecture(self.model_path) if self.model_path.exists() else None
@@ -177,10 +193,12 @@ def _fit_context_to_budget(
     context: list[SearchResult],
     n_ctx: int,
     max_tokens: int,
+    context_scale: float = 1.0,
 ) -> str:
-    overhead_tokens = 220
+    overhead_tokens = 700
     question_tokens = _estimate_tokens(question)
-    budget = max(n_ctx - max_tokens - overhead_tokens - question_tokens, 256)
+    raw_budget = n_ctx - max_tokens - overhead_tokens - question_tokens
+    budget = max(int(raw_budget * 0.72 * context_scale), 64)
     parts: list[str] = []
     used = 0
 
@@ -221,4 +239,9 @@ def _trim_to_token_budget(text: str, token_budget: int) -> str:
 def _estimate_tokens(text: str) -> int:
     if not text:
         return 0
-    return max(int(len(text.split()) * 1.35), int(len(text) / 4))
+    return max(int(len(text.split()) * 1.65), int(len(text) / 3.2))
+
+
+def _is_context_window_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "exceed" in message and ("context" in message or "n_ctx" in message)
