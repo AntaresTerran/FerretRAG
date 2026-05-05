@@ -26,8 +26,25 @@ For a first Windows test, prefer the official prebuilt CPU wheel index. The requ
 the wheel version because the newest PyPI release may not have a matching Windows/Python wheel yet:
 
 ```powershell
-.venv\Scripts\pip install -r requirements\llm-cpu.txt
+.venv\Scripts\python scripts\install_llm_runtime.py
 .venv\Scripts\python scripts\check_llm.py
+```
+
+The installer detects common GPU runtimes and installs the best `llama-cpp-python` runtime it can:
+prebuilt CUDA or Metal where available, and Vulkan builds for AMD, Intel, or other cases where
+Vulkan is the practical cross-vendor GPU backend. CPU remains the runtime fallback if GPU setup
+fails.
+
+You can preview what it would install:
+
+```powershell
+.venv\Scripts\python scripts\install_llm_runtime.py --dry-run
+```
+
+The pinned CPU requirements file is still available for a known-good CPU-only setup:
+
+```powershell
+.venv\Scripts\pip install -r requirements\llm-cpu.txt
 ```
 
 At the moment this CPU wheel can install on Python 3.13, but it may be too old for the included
@@ -39,21 +56,28 @@ You can test a specific model file:
 ```powershell
 .venv\Scripts\python scripts\check_llm.py models\Llama-3.2-1B-Instruct-UD-Q8_K_XL.gguf
 .venv\Scripts\python scripts\check_llm.py models\Qwen3.5-9B-UD-IQ3_XXS.gguf
+.venv\Scripts\python scripts\check_llm.py models\Qwen3.5-9B-UD-IQ3_XXS.gguf --gpu-layers 0
 ```
 
 The project still exposes `.[llm]`, but that uses pip's normal package resolution. On Windows it
 may try to build from source and fail with `nmake`, `CMAKE_C_COMPILER`, or compiler errors. That is
 expected unless Visual Studio Build Tools or MinGW are installed and configured.
 
-GPU acceleration should be handled after the CPU path works. Official CUDA prebuilt wheels require
-a matching Python, Windows, and CUDA combination; if no matching wheel exists, the package must be
-built locally.
+GPU acceleration is automatic when FerretRAG can use or build a GPU runtime. The app passes
+`n_gpu_layers` to `llama-cpp-python` based on `model.gpu_layers`:
 
-Practical paths from here:
+- `auto`: use GPU offload when detected and supported; otherwise use CPU.
+- `0`: force CPU.
+- positive integer: request that many GPU layers.
 
-- Use a GGUF model architecture supported by the pinned CPU wheel.
-- Install a newer `llama-cpp-python` from source with Visual Studio Build Tools or MinGW.
-- Use a Python/CUDA combination that has a matching newer prebuilt wheel.
+Vendor notes:
+
+- NVIDIA: uses CUDA prebuilt wheels when the CUDA and Python versions match an official wheel.
+- Apple Silicon: uses the Metal prebuilt wheel when Python is supported.
+- AMD and Intel: use the Vulkan backend. The installer may build `llama-cpp-python` from source
+  with `GGML_VULKAN=ON`, so local build tools and Vulkan drivers must be present.
+- Advanced users can still install their own GPU-enabled `llama-cpp-python` build. FerretRAG will
+  use it through the same `gpu_layers` setting.
 
 Known local model status with the pinned CPU wheel:
 
