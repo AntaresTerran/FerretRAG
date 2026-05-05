@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import string
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ferret_rag.core.config import AppConfig
 from ferret_rag.core.paths import app_root, resource_root
+from ferret_rag.index.loaders import SUPPORTED_EXTENSIONS
 from ferret_rag.index.store import LocalIndex
 from ferret_rag.llm.engine import LocalChatEngine
 
@@ -173,6 +175,21 @@ class ModelSelectResponse(BaseModel):
     runtime: RuntimeResponse
 
 
+class FilesystemEntryResponse(BaseModel):
+    name: str
+    path: str
+    kind: str
+    modified_time: float | None = None
+
+
+class FilesystemResponse(BaseModel):
+    current_path: str | None
+    parent_path: str | None
+    folders: list[FilesystemEntryResponse]
+    files: list[FilesystemEntryResponse]
+    unsupported_files_count: int
+
+
 def create_app(config: AppConfig | None = None) -> FastAPI:
     app_config = config or AppConfig.load()
     selected_model_path = app_config.model.path
@@ -271,13 +288,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
 
     @app.post("/api/index", response_model=IndexResponse)
-    def index_folder(request: IndexRequest) -> IndexResponse:
-        folder = Path(request.path).expanduser()
+    def index_path(request: IndexRequest) -> IndexResponse:
+        target = Path(request.path).expanduser()
         try:
-            stats = index.index_folder(folder)
-        except (FileNotFoundError, NotADirectoryError) as exc:
+            stats = index.index_path(target)
+        except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return IndexResponse(status="indexed", path=str(folder), **stats)
+        return IndexResponse(status="indexed", path=str(target), **stats)
+
+    @app.get("/api/filesystem", response_model=FilesystemResponse)
+    def filesystem(path: str | None = Query(default=None)) -> FilesystemResponse:
+        try:
+            return _filesystem_response(path)
+        except (FileNotFoundError, NotADirectoryError, PermissionError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/index", response_model=IndexStateResponse)
     def index_state() -> IndexStateResponse:
@@ -315,6 +339,105 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
 
     return app
+
+
+def _filesystem_response(path: str | None) -> FilesystemResponse:
+    if not path:
+        return FilesystemResponse(
+            current_path=None,
+            parent_path=None,
+            folders=_filesystem_roots(),
+            files=[],
+            unsupported_files_count=0,
+        )
+
+    current = Path(path).expanduser().resolve()
+    if not current.exists():
+        raise FileNotFoundError(f"Path does not exist: {current}")
+    if not current.is_dir():
+        raise NotADirectoryError(f"Path is not a folder: {current}")
+
+    folders: list[FilesystemEntryResponse] = []
+    files: list[FilesystemEntryResponse] = []
+    unsupported_files_count = 0
+    try:
+        entries = sorted(current.iterdir(), key=lambda item: item.name.lower())
+    except PermissionError as exc:
+        raise PermissionError(f"Cannot read folder: {current}") from exc
+
+    for entry in entries:
+        if entry.name.startswith("."):
+            continue
+        try:
+            stat = entry.stat()
+        except OSError:
+            continue
+        if entry.is_dir():
+            folders.append(
+                FilesystemEntryResponse(
+                    name=entry.name,
+                    path=str(entry),
+                    kind="folder",
+                    modified_time=stat.st_mtime,
+                )
+            )
+        elif entry.is_file() and entry.suffix.lower() in SUPPORTED_EXTENSIONS:
+            files.append(
+                FilesystemEntryResponse(
+                    name=entry.name,
+                    path=str(entry),
+                    kind="file",
+                    modified_time=stat.st_mtime,
+                )
+            )
+        elif entry.is_file():
+            unsupported_files_count += 1
+
+    parent = current.parent if current.parent != current else None
+    return FilesystemResponse(
+        current_path=str(current),
+        parent_path=str(parent) if parent else None,
+        folders=folders,
+        files=files,
+        unsupported_files_count=unsupported_files_count,
+    )
+
+
+def _filesystem_roots() -> list[FilesystemEntryResponse]:
+    roots: list[FilesystemEntryResponse] = []
+    home = Path.home()
+    if home.exists():
+        roots.append(
+            FilesystemEntryResponse(
+                name=f"Home ({home.name})",
+                path=str(home),
+                kind="folder",
+                modified_time=None,
+            )
+        )
+
+    for letter in string.ascii_uppercase:
+        drive = Path(f"{letter}:\\")
+        if drive.exists():
+            roots.append(
+                FilesystemEntryResponse(
+                    name=f"{letter}:",
+                    path=str(drive),
+                    kind="folder",
+                    modified_time=None,
+                )
+            )
+
+    if not roots:
+        roots.append(
+            FilesystemEntryResponse(
+                name="/",
+                path=str(Path("/")),
+                kind="folder",
+                modified_time=None,
+            )
+        )
+    return roots
 
 
 def _model_info(path: Path, selected_path: Path) -> ModelInfo:
