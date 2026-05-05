@@ -107,6 +107,9 @@ class HealthResponse(BaseModel):
     model_path: str
     model_architecture: str | None
     model_compatible: bool
+    gpu_layers: int
+    gpu_mode: str
+    gpu_message: str
     runtime_message: str
     chunks: int
 
@@ -158,6 +161,9 @@ class RuntimeResponse(BaseModel):
     llama_cpp_available: bool
     llama_cpp_version: str | None
     is_compatible: bool
+    gpu_layers: int
+    gpu_mode: str
+    gpu_message: str
     last_error: str | None
     message: str
 
@@ -175,7 +181,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         chunk_words=app_config.index.chunk_words,
         overlap=app_config.index.chunk_overlap,
     )
-    chat = LocalChatEngine(selected_model_path, n_ctx=app_config.model.n_ctx)
+    chat = LocalChatEngine(
+        selected_model_path,
+        n_ctx=app_config.model.n_ctx,
+        gpu_layers=app_config.model.gpu_layers,
+    )
     ui_dir = resource_root() / "ferret_rag" / "ui"
     icons_dir = resource_root() / "icons"
 
@@ -204,6 +214,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             model_path=runtime.model_path,
             model_architecture=runtime.architecture,
             model_compatible=runtime.is_compatible,
+            gpu_layers=runtime.gpu_layers,
+            gpu_mode=runtime.gpu_mode,
+            gpu_message=runtime.gpu_message,
             runtime_message=runtime.message,
             chunks=len(index.sources()),
         )
@@ -305,7 +318,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
 
 def _model_info(path: Path, selected_path: Path) -> ModelInfo:
-    runtime = LocalChatEngine(path).runtime_status()
+    runtime = LocalChatEngine(path, gpu_layers=0).runtime_status()
     architecture = runtime["architecture"]
     is_compatible = bool(runtime["is_compatible"])
     return ModelInfo(

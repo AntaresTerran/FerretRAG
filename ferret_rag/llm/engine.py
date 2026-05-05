@@ -4,22 +4,37 @@ from pathlib import Path
 
 from ferret_rag.index.store import SearchResult
 from ferret_rag.llm.gguf import read_gguf_architecture
+from ferret_rag.llm.gpu import GpuDetection, detect_gpu_backend, resolve_gpu_layers
 
 
 class LocalChatEngine:
-    def __init__(self, model_path: Path, n_ctx: int = 4096, max_tokens: int = 512) -> None:
+    def __init__(
+        self,
+        model_path: Path,
+        n_ctx: int = 4096,
+        max_tokens: int = 512,
+        gpu_layers: str | int = "auto",
+    ) -> None:
         self.model_path = model_path
         self.n_ctx = n_ctx
         self.max_tokens = max_tokens
+        self.gpu_layers = gpu_layers
         self._llm = None
+        self._loaded_gpu_layers: int | None = None
         self.last_error: str | None = None
+        self._gpu_detection: GpuDetection | None = None
+        self._gpu_mode = "unknown"
+        self._gpu_message = "GPU runtime has not been checked yet."
+        self._gpu_fallback_message: str | None = None
 
     def set_model_path(self, model_path: Path) -> None:
         if model_path.resolve() == self.model_path.resolve():
             return
         self.model_path = model_path
         self._llm = None
+        self._loaded_gpu_layers = None
         self.last_error = None
+        self._gpu_fallback_message = None
 
     def answer(self, question: str, context: list[SearchResult]) -> str:
         if not context:
@@ -66,7 +81,27 @@ class LocalChatEngine:
 
         try:
             if self._llm is None:
-                self._llm = Llama(model_path=str(self.model_path), n_ctx=self.n_ctx, verbose=False)
+                requested_gpu_layers, _, _ = self._resolve_gpu_layers()
+                try:
+                    self._load_llama(Llama, requested_gpu_layers)
+                except Exception as exc:
+                    self._llm = None
+                    self._loaded_gpu_layers = None
+                    if requested_gpu_layers == 0:
+                        raise
+                    self._gpu_fallback_message = (
+                        f"GPU model load failed ({exc}); retried on CPU."
+                    )
+                    self.last_error = self._gpu_fallback_message
+                    try:
+                        self._load_llama(Llama, 0)
+                    except Exception as cpu_exc:
+                        self.last_error = (
+                            f"{self._gpu_fallback_message} CPU retry failed ({cpu_exc})."
+                        )
+                        return None
+                    self._gpu_mode = "cpu-fallback"
+                    self._gpu_message = self._gpu_fallback_message
 
             response = None
             for context_scale in (1.0, 0.55, 0.3):
@@ -134,6 +169,15 @@ class LocalChatEngine:
             echo=False,
         )
 
+    def _load_llama(self, llama_class, gpu_layers: int) -> None:
+        self._llm = llama_class(
+            model_path=str(self.model_path),
+            n_ctx=self.n_ctx,
+            n_gpu_layers=gpu_layers,
+            verbose=False,
+        )
+        self._loaded_gpu_layers = gpu_layers
+
     def runtime_status(self) -> dict[str, object]:
         architecture = read_gguf_architecture(self.model_path) if self.model_path.exists() else None
         llama_version: str | None = None
@@ -153,6 +197,15 @@ class LocalChatEngine:
 
         if self.last_error:
             message = self.last_error
+        requested_gpu_layers, gpu_mode, gpu_message = self._resolve_gpu_layers()
+        actual_gpu_layers = (
+            self._loaded_gpu_layers
+            if self._loaded_gpu_layers is not None
+            else requested_gpu_layers
+        )
+        if self._loaded_gpu_layers == 0 and requested_gpu_layers != 0:
+            gpu_mode = "cpu-fallback"
+            gpu_message = self._gpu_fallback_message or "GPU load failed; running on CPU."
 
         return {
             "model_path": str(self.model_path),
@@ -161,6 +214,9 @@ class LocalChatEngine:
             "llama_cpp_available": llama_available,
             "llama_cpp_version": llama_version,
             "is_compatible": compatible,
+            "gpu_layers": actual_gpu_layers,
+            "gpu_mode": gpu_mode,
+            "gpu_message": gpu_message,
             "last_error": self.last_error,
             "message": message,
         }
@@ -169,6 +225,18 @@ class LocalChatEngine:
         if not self.model_path.exists() or architecture is None or version is None:
             return False
         return not (architecture == "gemma4" and _version_tuple(version) <= (0, 3, 19))
+
+    def _resolve_gpu_layers(self) -> tuple[int, str, str]:
+        needs_detection = str(self.gpu_layers).strip().lower() == "auto"
+        if needs_detection and self._gpu_detection is None:
+            self._gpu_detection = detect_gpu_backend()
+        gpu_layers, gpu_mode, gpu_message = resolve_gpu_layers(
+            self.gpu_layers,
+            detection=self._gpu_detection,
+        )
+        self._gpu_mode = gpu_mode
+        self._gpu_message = gpu_message
+        return gpu_layers, gpu_mode, gpu_message
 
 
 def _version_tuple(version: str) -> tuple[int, ...]:

@@ -21,6 +21,7 @@ def test_health_endpoint(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert "model_path" in response.json()
+    assert "gpu_mode" in response.json()
 
 
 def test_config_endpoint(tmp_path: Path) -> None:
@@ -64,6 +65,7 @@ def test_runtime_endpoint(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.json()["model_exists"] is False
+    assert "gpu_layers" in response.json()
 
 
 def test_select_model_endpoint(tmp_path: Path) -> None:
