@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from ferret_rag.index.store import SearchResult
@@ -34,6 +35,18 @@ class LocalChatEngine:
         self._llm = None
         self._loaded_gpu_layers = None
         self.last_error = None
+        self._gpu_fallback_message = None
+
+    def set_gpu_layers(self, gpu_layers: str | int) -> None:
+        if gpu_layers == self.gpu_layers:
+            return
+        self.gpu_layers = gpu_layers
+        self._llm = None
+        self._loaded_gpu_layers = None
+        self.last_error = None
+        self._gpu_detection = None
+        self._gpu_mode = "unknown"
+        self._gpu_message = "GPU runtime has not been checked yet."
         self._gpu_fallback_message = None
 
     def answer(self, question: str, context: list[SearchResult]) -> str:
@@ -174,7 +187,7 @@ class LocalChatEngine:
             model_path=str(self.model_path),
             n_ctx=self.n_ctx,
             n_gpu_layers=gpu_layers,
-            verbose=False,
+            verbose=_llm_verbose(),
         )
         self._loaded_gpu_layers = gpu_layers
 
@@ -246,6 +259,15 @@ def _version_tuple(version: str) -> tuple[int, ...]:
             break
         parts.append(int(part))
     return tuple(parts)
+
+
+def _llm_verbose() -> bool:
+    return os.environ.get("FERRET_RAG_LLM_VERBOSE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def _compatibility_message(architecture: str | None, version: str | None) -> str:

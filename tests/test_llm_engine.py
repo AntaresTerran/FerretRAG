@@ -103,6 +103,29 @@ def test_llama_passes_configured_gpu_layers(monkeypatch, tmp_path: Path) -> None
     assert received_layers == [17]
 
 
+def test_set_gpu_layers_resets_loaded_runtime(monkeypatch, tmp_path: Path) -> None:
+    received_layers: list[int] = []
+
+    class FakeLlama:
+        def __init__(self, *args, **kwargs) -> None:
+            received_layers.append(kwargs["n_gpu_layers"])
+
+        def create_chat_completion(self, messages, max_tokens):
+            return {"choices": [{"message": {"content": "Runtime switched."}}]}
+
+    fake_module = types.SimpleNamespace(__version__="0.3.21", Llama=FakeLlama)
+    monkeypatch.setitem(sys.modules, "llama_cpp", fake_module)
+    model_path = tmp_path / "model.gguf"
+    model_path.write_bytes(b"not a real model")
+    engine = LocalChatEngine(model_path=model_path, n_ctx=1024, max_tokens=128, gpu_layers=0)
+
+    assert engine._try_llama("Question?", [_result()]) == "Runtime switched."
+    engine.set_gpu_layers(12)
+    assert engine._try_llama("Question?", [_result()]) == "Runtime switched."
+
+    assert received_layers == [0, 12]
+
+
 def test_llama_auto_gpu_layers_use_detected_backend(monkeypatch, tmp_path: Path) -> None:
     received_layers: list[int] = []
 

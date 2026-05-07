@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from ferret_rag.api import app as api_app
 from ferret_rag.api.app import create_app
 from ferret_rag.core.config import AppConfig, IndexConfig, ModelConfig, ServerConfig
 
@@ -53,6 +54,89 @@ def test_models_endpoint(tmp_path: Path) -> None:
     assert "selected_model" in response.json()
 
 
+def test_model_catalog_endpoint(tmp_path: Path) -> None:
+    config = AppConfig(
+        server=ServerConfig(open_browser=False),
+        model=ModelConfig(path=tmp_path / "missing.gguf"),
+        index=IndexConfig(data_dir=tmp_path / "data"),
+    )
+    client = TestClient(create_app(config))
+
+    response = client.get("/api/model-catalog")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["models"]
+    assert {"id", "name", "repo", "filename", "size_label", "notes"} <= body["models"][0].keys()
+
+
+def test_model_filesystem_endpoint_lists_gguf_files(tmp_path: Path) -> None:
+    (tmp_path / "chosen.gguf").write_bytes(b"not a real model")
+    (tmp_path / "notes.txt").write_text("skip me", encoding="utf-8")
+    config = AppConfig(
+        server=ServerConfig(open_browser=False),
+        model=ModelConfig(path=tmp_path / "missing.gguf"),
+        index=IndexConfig(data_dir=tmp_path / "data"),
+    )
+    client = TestClient(create_app(config))
+
+    response = client.get("/api/model-filesystem", params={"path": str(tmp_path)})
+    body = response.json()
+
+    assert response.status_code == 200
+    assert [file["name"] for file in body["files"]] == ["chosen.gguf"]
+    assert body["unsupported_files_count"] == 1
+
+
+def test_download_model_endpoint_downloads_and_selects(tmp_path: Path, monkeypatch) -> None:
+    catalog_item = api_app.ModelCatalogItem(
+        id="tiny-test",
+        name="Tiny Test Model",
+        repo="example/tiny",
+        filename="tiny.gguf",
+        size_label="tiny",
+        notes="test fixture",
+    )
+
+    def fake_download(_url: str, destination: Path) -> None:
+        destination.write_bytes(b"not a real model")
+
+    monkeypatch.setattr(api_app, "MODEL_CATALOG", [catalog_item])
+    monkeypatch.setattr(api_app, "app_root", lambda: tmp_path)
+    monkeypatch.setattr(api_app, "_download_file", fake_download)
+    config = AppConfig(
+        server=ServerConfig(open_browser=False),
+        model=ModelConfig(path=tmp_path / "missing.gguf"),
+        index=IndexConfig(data_dir=tmp_path / "data"),
+    )
+    client = TestClient(create_app(config))
+
+    response = client.post("/api/model/download", json={"id": "tiny-test"})
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["status"] == "downloaded"
+    assert body["model"]["path"] == str(tmp_path / "models" / "tiny.gguf")
+    assert body["runtime"]["model_path"] == str(tmp_path / "models" / "tiny.gguf")
+
+
+def test_shutdown_endpoint_schedules_shutdown(tmp_path: Path, monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(api_app, "_schedule_shutdown", lambda: calls.append("scheduled"))
+    config = AppConfig(
+        server=ServerConfig(open_browser=False),
+        model=ModelConfig(path=tmp_path / "missing.gguf"),
+        index=IndexConfig(data_dir=tmp_path / "data"),
+    )
+    client = TestClient(create_app(config))
+
+    response = client.post("/api/shutdown")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "shutting_down"
+    assert calls == ["scheduled"]
+
+
 def test_runtime_endpoint(tmp_path: Path) -> None:
     config = AppConfig(
         server=ServerConfig(open_browser=False),
@@ -66,6 +150,37 @@ def test_runtime_endpoint(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert response.json()["model_exists"] is False
     assert "gpu_layers" in response.json()
+
+
+def test_runtime_update_endpoint_switches_gpu_layers(tmp_path: Path) -> None:
+    config = AppConfig(
+        server=ServerConfig(open_browser=False),
+        model=ModelConfig(path=tmp_path / "missing.gguf"),
+        index=IndexConfig(data_dir=tmp_path / "data"),
+    )
+    client = TestClient(create_app(config))
+
+    response = client.post("/api/runtime", json={"gpu_layers": 0})
+    config_response = client.get("/api/config")
+
+    assert response.status_code == 200
+    assert response.json()["gpu_layers"] == 0
+    assert response.json()["gpu_mode"] == "cpu"
+    assert config_response.json()["model"]["gpu_layers"] == 0
+
+
+def test_runtime_update_endpoint_rejects_invalid_gpu_layers(tmp_path: Path) -> None:
+    config = AppConfig(
+        server=ServerConfig(open_browser=False),
+        model=ModelConfig(path=tmp_path / "missing.gguf"),
+        index=IndexConfig(data_dir=tmp_path / "data"),
+    )
+    client = TestClient(create_app(config))
+
+    response = client.post("/api/runtime", json={"gpu_layers": "banana"})
+
+    assert response.status_code == 400
+    assert "gpu_layers" in response.json()["detail"]
 
 
 def test_select_model_endpoint(tmp_path: Path) -> None:

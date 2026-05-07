@@ -1,4 +1,5 @@
 .venv/
+.codex/
 venv/
 env/
 __pycache__/
@@ -12,6 +13,8 @@ htmlcov/
 
 data/
 dist/
+dist-verify/
+dist-check-*/
 build/
 *.spec
 *.exe
