@@ -18,90 +18,209 @@
           </div>
         </div>
 
-        <section class="panel">
-          <h2>Folders</h2>
-          <label for="folderPath" class="form-label">Folder path</label>
-          <input
-            id="folderPath"
-            class="form-control"
-            placeholder="D:\Documents\Knowledge"
-            autocomplete="off"
-          />
-          <button id="indexButton" class="btn btn-lime w-100 mt-3">Index Folder</button>
-          <p id="indexStatus" class="status-text mt-3">No folder indexed yet.</p>
+        <nav class="nav-list" aria-label="Primary">
+          <a class="nav-link" href="#chat" data-view-link="chat">Chat</a>
+          <a class="nav-link" href="#index" data-view-link="index">Index</a>
+          <a class="nav-link" href="#settings" data-view-link="settings">Settings</a>
+        </nav>
+
+        <section class="sidebar-status" aria-label="Status">
+          <div>
+            <span>Server</span>
+            <strong id="serverStatus">Checking</strong>
+          </div>
+          <div>
+            <span>Runtime</span>
+            <strong id="runtimeStatus">Checking</strong>
+          </div>
+          <div>
+            <span>Chunks</span>
+            <strong id="chunkStatus">0</strong>
+          </div>
         </section>
 
-        <section class="panel">
-          <h2>Indexed</h2>
-          <div id="indexedRoots" class="index-list">No folders indexed.</div>
-          <div id="indexedFiles" class="index-list compact"></div>
-        </section>
-
-        <section class="panel">
-          <h2>Status</h2>
-          <dl class="status-grid">
-            <div>
-              <dt>Server</dt>
-              <dd id="serverStatus">Checking</dd>
-            </div>
-            <div>
-              <dt>Model</dt>
-              <dd id="modelStatus">Checking</dd>
-            </div>
-            <div>
-              <dt>Runtime</dt>
-              <dd id="runtimeStatus">Checking</dd>
-            </div>
-            <div>
-              <dt>Chunks</dt>
-              <dd id="chunkStatus">0</dd>
-            </div>
-          </dl>
-        </section>
-
-        <section class="panel">
-          <h2>Model</h2>
-          <label for="modelSelect" class="form-label">Local GGUF</label>
-          <select id="modelSelect" class="form-control"></select>
-          <button id="selectModelButton" class="btn btn-blue w-100 mt-3">Use Model</button>
-          <p id="modelDetail" class="status-text mt-3">Loading local models...</p>
-        </section>
+        <button id="quitAppButton" class="btn sidebar-quit" type="button">Quit</button>
       </aside>
 
       <section class="workspace">
-        <header class="topbar">
-          <div>
-            <p class="eyebrow">Local-first document chat</p>
-            <h2>Ask your files</h2>
-          </div>
-          <button id="refreshHealth" class="btn btn-outline-light">Refresh</button>
-        </header>
+        <section class="view active" id="view-chat" data-view="chat">
+          <header class="page-header">
+            <div>
+              <p class="eyebrow">Local-first document chat</p>
+              <h2>Ask your files</h2>
+            </div>
+            <button id="refreshHealth" class="btn btn-secondary" type="button">Refresh</button>
+          </header>
 
-        <section id="messages" class="messages" aria-live="polite">
-          <article class="message assistant">
-            <p>
-              Add a folder path, index it, then ask a question. Everything runs against local files.
-            </p>
-          </article>
+          <section id="messages" class="messages" aria-live="polite">
+            <article class="message assistant">
+              <p>Index files or folders, then ask a question. Everything runs against local files.</p>
+            </article>
+          </section>
+
+          <form id="chatForm" class="chat-form">
+            <input
+              id="messageInput"
+              class="form-control"
+              placeholder="What should I find?"
+              autocomplete="off"
+            />
+            <button class="btn btn-blue" type="submit">Send</button>
+          </form>
+          <div class="chat-actions">
+            <button id="copyAnswerButton" class="btn btn-secondary" type="button">Copy Answer</button>
+            <button id="clearChatButton" class="btn btn-secondary" type="button">Clear Chat</button>
+          </div>
+
+          <section class="content-panel">
+            <h3>Sources</h3>
+            <div id="sources" class="sources-list">Relevant snippets will appear here.</div>
+          </section>
         </section>
 
-        <form id="chatForm" class="chat-form">
-          <input
-            id="messageInput"
-            class="form-control"
-            placeholder="What should I find?"
-            autocomplete="off"
-          />
-          <button class="btn btn-blue" type="submit">Send</button>
-        </form>
-        <div class="chat-actions">
-          <button id="copyAnswerButton" class="btn btn-secondary" type="button">Copy Answer</button>
-          <button id="clearChatButton" class="btn btn-secondary" type="button">Clear Chat</button>
-        </div>
+        <section class="view" id="view-index" data-view="index">
+          <header class="page-header">
+            <div>
+              <p class="eyebrow">Local library</p>
+              <h2>Index files and folders</h2>
+            </div>
+            <button id="refreshIndexButton" class="btn btn-secondary" type="button">Refresh</button>
+          </header>
 
-        <section class="sources-panel">
-          <h2>Sources</h2>
-          <div id="sources" class="sources-list">Relevant snippets will appear here.</div>
+          <section class="content-grid">
+            <article class="content-panel">
+              <div class="section-heading">
+                <div>
+                  <h3>Choose content</h3>
+                  <p>Select supported files or whole folders from this machine.</p>
+                </div>
+                <button id="goHomeButton" class="btn btn-secondary" type="button">Home</button>
+              </div>
+
+              <div class="path-bar">
+                <button id="goParentButton" class="btn btn-secondary" type="button">Up</button>
+                <div id="currentPath" class="path-display">Loading...</div>
+              </div>
+
+              <div id="filesystemList" class="browser-list">Loading folders and files...</div>
+
+              <div class="selection-footer">
+                <span id="selectionSummary">No items selected.</span>
+                <button id="indexSelectedButton" class="btn btn-lime" type="button">Index Selected</button>
+              </div>
+
+              <details class="advanced-entry">
+                <summary>Enter a path manually</summary>
+                <div class="manual-row">
+                  <input
+                    id="manualPath"
+                    class="form-control"
+                    placeholder="D:\Documents\Knowledge"
+                    autocomplete="off"
+                  />
+                  <button id="manualIndexButton" class="btn btn-blue" type="button">Index Path</button>
+                </div>
+              </details>
+
+              <p id="indexStatus" class="status-text">No indexing run yet.</p>
+            </article>
+
+            <article class="content-panel">
+              <div class="section-heading">
+                <div>
+                  <h3>Indexed library</h3>
+                  <p id="librarySummary">No files indexed yet.</p>
+                </div>
+              </div>
+              <div id="indexedLibrary" class="library-list">No files indexed yet.</div>
+            </article>
+          </section>
+        </section>
+
+        <section class="view" id="view-settings" data-view="settings">
+          <header class="page-header">
+            <div>
+              <p class="eyebrow">Local runtime</p>
+              <h2>Settings</h2>
+            </div>
+          </header>
+
+          <section class="content-grid">
+            <article class="content-panel">
+              <h3>Model</h3>
+              <label for="modelSelect" class="form-label dark">Local GGUF</label>
+              <select id="modelSelect" class="form-control"></select>
+              <button id="selectModelButton" class="btn btn-blue mt-3" type="button">Use Model</button>
+              <p id="modelDetail" class="status-text dark">Loading local models...</p>
+
+              <details class="advanced-entry">
+                <summary>Use a model from disk</summary>
+                <div class="manual-row">
+                  <input
+                    id="manualModelPath"
+                    class="form-control"
+                    placeholder="D:\Models\example.gguf"
+                    autocomplete="off"
+                  />
+                  <button id="manualModelButton" class="btn btn-blue" type="button">Use Path</button>
+                </div>
+
+                <div class="path-bar mt-3">
+                  <button id="modelGoParentButton" class="btn btn-secondary" type="button">Up</button>
+                  <div id="modelCurrentPath" class="path-display">Loading...</div>
+                </div>
+                <div id="modelFilesystemList" class="browser-list">Loading model folders...</div>
+              </details>
+            </article>
+
+            <article class="content-panel">
+              <h3>Download a model</h3>
+              <p class="panel-copy">Models are downloaded from Hugging Face into the local models folder.</p>
+              <div id="modelCatalog" class="catalog-list">Loading recommended models...</div>
+              <p id="downloadStatus" class="status-text dark">No download running.</p>
+            </article>
+
+            <article class="content-panel">
+              <h3>Runtime and index config</h3>
+              <div class="runtime-card">
+                <div>
+                  <span>Active mode</span>
+                  <strong id="runtimeModeDetail">Checking</strong>
+                  <p id="runtimeModeMessage">Loading runtime status...</p>
+                </div>
+                <div class="runtime-toggle" aria-label="Runtime mode">
+                  <button id="runtimeGpuButton" class="btn btn-blue" type="button">GPU / Auto</button>
+                  <button id="runtimeCpuButton" class="btn btn-secondary" type="button">CPU</button>
+                </div>
+              </div>
+              <dl class="detail-grid">
+                <div>
+                  <dt>Configured GPU layers</dt>
+                  <dd id="configGpuLayers">Loading</dd>
+                </div>
+                <div>
+                  <dt>Model</dt>
+                  <dd id="modelStatus">Checking</dd>
+                </div>
+                <div>
+                  <dt>Data dir</dt>
+                  <dd id="configDataDir">Loading</dd>
+                </div>
+                <div>
+                  <dt>Chunk words</dt>
+                  <dd id="configChunkWords">Loading</dd>
+                </div>
+                <div>
+                  <dt>Chunk overlap</dt>
+                  <dd id="configChunkOverlap">Loading</dd>
+                </div>
+                <div>
+                  <dt>Top K</dt>
+                  <dd id="configTopK">Loading</dd>
+                </div>
+              </dl>
+            </article>
+          </section>
         </section>
       </section>
     </main>

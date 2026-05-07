@@ -1,39 +1,87 @@
-const folderPath = document.querySelector("#folderPath");
-const indexButton = document.querySelector("#indexButton");
-const indexStatus = document.querySelector("#indexStatus");
-const indexedRoots = document.querySelector("#indexedRoots");
-const indexedFiles = document.querySelector("#indexedFiles");
+const viewLinks = document.querySelectorAll("[data-view-link]");
+const views = document.querySelectorAll("[data-view]");
 const serverStatus = document.querySelector("#serverStatus");
 const modelStatus = document.querySelector("#modelStatus");
 const runtimeStatus = document.querySelector("#runtimeStatus");
 const chunkStatus = document.querySelector("#chunkStatus");
 const refreshHealth = document.querySelector("#refreshHealth");
+const refreshIndexButton = document.querySelector("#refreshIndexButton");
+const configDataDir = document.querySelector("#configDataDir");
+const configChunkWords = document.querySelector("#configChunkWords");
+const configChunkOverlap = document.querySelector("#configChunkOverlap");
+const configTopK = document.querySelector("#configTopK");
+const configGpuLayers = document.querySelector("#configGpuLayers");
+const runtimeModeDetail = document.querySelector("#runtimeModeDetail");
+const runtimeModeMessage = document.querySelector("#runtimeModeMessage");
+const runtimeGpuButton = document.querySelector("#runtimeGpuButton");
+const runtimeCpuButton = document.querySelector("#runtimeCpuButton");
 const modelSelect = document.querySelector("#modelSelect");
 const selectModelButton = document.querySelector("#selectModelButton");
 const modelDetail = document.querySelector("#modelDetail");
+const manualModelPath = document.querySelector("#manualModelPath");
+const manualModelButton = document.querySelector("#manualModelButton");
+const modelGoParentButton = document.querySelector("#modelGoParentButton");
+const modelCurrentPath = document.querySelector("#modelCurrentPath");
+const modelFilesystemList = document.querySelector("#modelFilesystemList");
+const modelCatalog = document.querySelector("#modelCatalog");
+const downloadStatus = document.querySelector("#downloadStatus");
+const quitAppButton = document.querySelector("#quitAppButton");
 const chatForm = document.querySelector("#chatForm");
 const messageInput = document.querySelector("#messageInput");
 const messages = document.querySelector("#messages");
 const sources = document.querySelector("#sources");
 const copyAnswerButton = document.querySelector("#copyAnswerButton");
 const clearChatButton = document.querySelector("#clearChatButton");
+const goHomeButton = document.querySelector("#goHomeButton");
+const goParentButton = document.querySelector("#goParentButton");
+const currentPath = document.querySelector("#currentPath");
+const filesystemList = document.querySelector("#filesystemList");
+const selectionSummary = document.querySelector("#selectionSummary");
+const indexSelectedButton = document.querySelector("#indexSelectedButton");
+const manualPath = document.querySelector("#manualPath");
+const manualIndexButton = document.querySelector("#manualIndexButton");
+const indexStatus = document.querySelector("#indexStatus");
+const indexedLibrary = document.querySelector("#indexedLibrary");
+const librarySummary = document.querySelector("#librarySummary");
 
+const selectedPaths = new Set();
+let filesystemState = null;
+let modelFilesystemState = null;
 let lastAnswer = "";
+
+function activeView() {
+  const requested = window.location.hash.replace("#", "") || "chat";
+  return ["chat", "index", "settings"].includes(requested) ? requested : "chat";
+}
+
+function renderView() {
+  const current = activeView();
+  for (const view of views) {
+    view.classList.toggle("active", view.dataset.view === current);
+  }
+  for (const link of viewLinks) {
+    link.classList.toggle("active", link.dataset.viewLink === current);
+  }
+}
 
 async function refreshStatus() {
   try {
-    const [healthResponse, modelsResponse] = await Promise.all([
+    const [healthResponse, modelsResponse, configResponse] = await Promise.all([
       fetch("/api/health"),
       fetch("/api/models"),
+      fetch("/api/config"),
     ]);
     const health = await healthResponse.json();
     const models = await modelsResponse.json();
+    const config = await configResponse.json();
     serverStatus.textContent = health.status;
     modelStatus.textContent = health.model_exists ? "Found" : "Missing";
     runtimeStatus.textContent = health.model_compatible ? "Ready" : "Check";
     runtimeStatus.title = health.runtime_message;
     chunkStatus.textContent = health.chunks;
     renderModels(models.models || [], models.selected_model);
+    renderConfig(config);
+    renderRuntime(health, config.model);
     await refreshIndexState();
   } catch (error) {
     serverStatus.textContent = "Offline";
@@ -42,10 +90,83 @@ async function refreshStatus() {
   }
 }
 
+function renderConfig(config) {
+  const indexConfig = config.index;
+  configDataDir.textContent = indexConfig.data_dir;
+  configChunkWords.textContent = indexConfig.chunk_words;
+  configChunkOverlap.textContent = indexConfig.chunk_overlap;
+  configTopK.textContent = indexConfig.top_k;
+  configGpuLayers.textContent = config.model.gpu_layers;
+}
+
+function renderRuntime(health, modelConfig) {
+  runtimeModeDetail.textContent = runtimeModeLabel(health.gpu_mode);
+  runtimeModeMessage.textContent = health.gpu_message || health.runtime_message;
+  runtimeGpuButton.classList.toggle("active", modelConfig.gpu_layers !== 0);
+  runtimeCpuButton.classList.toggle("active", modelConfig.gpu_layers === 0);
+}
+
+function runtimeModeLabel(mode) {
+  const labels = {
+    "auto-gpu": "GPU requested",
+    "auto-cpu": "CPU",
+    "cpu-fallback": "CPU fallback",
+    cpu: "CPU",
+    gpu: "GPU",
+  };
+  return labels[mode] || mode || "Unknown";
+}
+
 async function refreshIndexState() {
   const response = await fetch("/api/index");
   const data = await response.json();
   renderIndexState(data);
+}
+
+async function loadFilesystem(path = null) {
+  filesystemList.textContent = "Loading folders and files...";
+  const query = path ? `?path=${encodeURIComponent(path)}` : "";
+  try {
+    const response = await fetch(`/api/filesystem${query}`);
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || "Could not read folder.");
+    }
+    filesystemState = data;
+    renderFilesystem(data);
+  } catch (error) {
+    filesystemList.textContent = error.message;
+  }
+}
+
+async function loadModelFilesystem(path = null) {
+  modelFilesystemList.textContent = "Loading models...";
+  const query = path ? `?path=${encodeURIComponent(path)}` : "";
+  try {
+    const response = await fetch(`/api/model-filesystem${query}`);
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || "Could not read folder.");
+    }
+    modelFilesystemState = data;
+    renderModelFilesystem(data);
+  } catch (error) {
+    modelFilesystemList.textContent = error.message;
+  }
+}
+
+async function refreshModelCatalog() {
+  modelCatalog.textContent = "Loading model choices...";
+  try {
+    const response = await fetch("/api/model-catalog");
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || "Could not load model catalog.");
+    }
+    renderModelCatalog(data.models || []);
+  } catch (error) {
+    modelCatalog.textContent = error.message;
+  }
 }
 
 function addMessage(role, text) {
@@ -82,51 +203,307 @@ function renderModels(items, selectedModel) {
   modelDetail.textContent = `${selected.architecture || "unknown"} - ${sizeGb} GB - ${selected.status}`;
 }
 
-function renderIndexState(data) {
-  indexedRoots.innerHTML = "";
-  indexedFiles.innerHTML = "";
+function renderFilesystem(data) {
+  currentPath.textContent = data.current_path || "Choose a starting location";
+  goParentButton.disabled = !data.parent_path;
+  filesystemList.innerHTML = "";
 
-  if (!data.roots?.length) {
-    indexedRoots.textContent = "No folders indexed.";
-  } else {
-    for (const root of data.roots) {
-      indexedRoots.appendChild(indexItem(root.path, `${root.active_file_count} files`, true));
-    }
+  const entries = [...(data.folders || []), ...(data.files || [])];
+  if (!entries.length) {
+    filesystemList.textContent = "No supported files or folders here.";
   }
 
-  if (data.files?.length) {
-    for (const file of data.files.slice(0, 12)) {
-      indexedFiles.appendChild(
-        indexItem(file.file_path, `${file.file_name} - ${file.chunk_count} chunks`, false),
-      );
-    }
-    if (data.files.length > 12) {
-      const more = document.createElement("div");
-      more.className = "index-note";
-      more.textContent = `${data.files.length - 12} more files indexed.`;
-      indexedFiles.appendChild(more);
-    }
+  for (const entry of entries) {
+    const row = document.createElement("div");
+    row.className = "browser-row";
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = selectedPaths.has(entry.path);
+    checkbox.addEventListener("change", () => toggleSelection(entry.path, checkbox.checked));
+
+    const open = document.createElement("button");
+    open.className = "browser-open";
+    open.type = "button";
+    open.textContent = entry.kind === "folder" ? "Open" : "File";
+    open.disabled = entry.kind !== "folder";
+    open.addEventListener("click", () => loadFilesystem(entry.path));
+
+    const text = document.createElement("div");
+    text.className = "browser-text";
+    text.innerHTML = `<strong>${escapeHtml(entry.name)}</strong><span>${escapeHtml(entry.path)}</span>`;
+
+    row.append(checkbox, open, text);
+    filesystemList.appendChild(row);
+  }
+
+  if (data.unsupported_files_count) {
+    const note = document.createElement("p");
+    note.className = "muted-note";
+    note.textContent = `${data.unsupported_files_count} unsupported files hidden.`;
+    filesystemList.appendChild(note);
+  }
+  updateSelectionSummary();
+}
+
+function renderModelFilesystem(data) {
+  modelCurrentPath.textContent = data.current_path || "Choose a starting location";
+  modelGoParentButton.disabled = !data.parent_path;
+  modelFilesystemList.innerHTML = "";
+
+  const entries = [...(data.folders || []), ...(data.files || [])];
+  if (!entries.length) {
+    modelFilesystemList.textContent = "No GGUF models found here.";
+  }
+
+  for (const entry of entries) {
+    const row = document.createElement("div");
+    row.className = "browser-row model-browser-row";
+
+    const open = document.createElement("button");
+    open.className = "browser-open";
+    open.type = "button";
+    open.textContent = entry.kind === "folder" ? "Open" : "Use";
+    open.addEventListener("click", () => {
+      if (entry.kind === "folder") {
+        loadModelFilesystem(entry.path);
+      } else {
+        manualModelPath.value = entry.path;
+        useModelPath(entry.path);
+      }
+    });
+
+    const text = document.createElement("div");
+    text.className = "browser-text";
+    text.innerHTML = `<strong>${escapeHtml(entry.name)}</strong><span>${escapeHtml(entry.path)}</span>`;
+
+    row.append(open, text);
+    modelFilesystemList.appendChild(row);
+  }
+
+  if (data.unsupported_files_count) {
+    const note = document.createElement("p");
+    note.className = "muted-note";
+    note.textContent = `${data.unsupported_files_count} non-GGUF files hidden.`;
+    modelFilesystemList.appendChild(note);
   }
 }
 
-function indexItem(path, label, isRoot) {
-  const wrapper = document.createElement("div");
-  wrapper.className = "index-item";
+function renderModelCatalog(items) {
+  modelCatalog.innerHTML = "";
+  if (!items.length) {
+    modelCatalog.textContent = "No model downloads configured.";
+    return;
+  }
 
-  const text = document.createElement("div");
-  text.className = "index-text";
-  text.textContent = label;
-  text.title = path;
+  for (const item of items) {
+    const row = document.createElement("article");
+    row.className = "catalog-item";
+    row.innerHTML = `
+      <div>
+        <strong>${escapeHtml(item.name)}</strong>
+        <span>${escapeHtml(item.size_label)} - ${escapeHtml(item.notes)}</span>
+      </div>
+    `;
 
+    const button = document.createElement("button");
+    button.className = "btn btn-secondary";
+    button.type = "button";
+    button.textContent = "Download";
+    button.addEventListener("click", () => downloadModel(item.id, button));
+
+    row.appendChild(button);
+    modelCatalog.appendChild(row);
+  }
+}
+
+function toggleSelection(path, isSelected) {
+  if (isSelected) {
+    selectedPaths.add(path);
+  } else {
+    selectedPaths.delete(path);
+  }
+  updateSelectionSummary();
+}
+
+function updateSelectionSummary() {
+  const count = selectedPaths.size;
+  selectionSummary.textContent = count ? `${count} item${count === 1 ? "" : "s"} selected.` : "No items selected.";
+  indexSelectedButton.disabled = count === 0;
+}
+
+function renderIndexState(data) {
+  indexedLibrary.innerHTML = "";
+  const files = data.files || [];
+  librarySummary.textContent = files.length
+    ? `${files.length} files, ${data.chunks_total} chunks indexed.`
+    : "No files indexed yet.";
+
+  if (!files.length) {
+    indexedLibrary.textContent = "No files indexed yet.";
+    return;
+  }
+
+  const roots = data.roots || [];
+  const grouped = new Map();
+  for (const root of roots) {
+    grouped.set(root.path, { root, files: [] });
+  }
+  const looseFiles = [];
+  for (const file of files) {
+    if (file.root_path && grouped.has(file.root_path)) {
+      grouped.get(file.root_path).files.push(file);
+    } else {
+      looseFiles.push(file);
+    }
+  }
+
+  for (const group of grouped.values()) {
+    indexedLibrary.appendChild(rootGroup(group.root, group.files));
+  }
+  if (looseFiles.length) {
+    indexedLibrary.appendChild(rootGroup({ path: "Individual files", active_file_count: looseFiles.length }, looseFiles));
+  }
+}
+
+function rootGroup(root, files) {
+  const group = document.createElement("section");
+  group.className = "library-group";
+
+  const header = document.createElement("div");
+  header.className = "library-group-header";
+  const title = document.createElement("div");
+  title.innerHTML = `<strong>${escapeHtml(root.path)}</strong><span>${root.active_file_count || files.length} files</span>`;
+  header.appendChild(title);
+
+  if (root.path !== "Individual files") {
+    const remove = removeButton(root.path, "Remove folder from index");
+    header.appendChild(remove);
+  }
+  group.appendChild(header);
+
+  for (const file of files) {
+    group.appendChild(fileRow(file));
+  }
+  return group;
+}
+
+function fileRow(file) {
+  const row = document.createElement("div");
+  row.className = "file-row";
+  const modified = file.modified_time ? new Date(file.modified_time * 1000).toLocaleString() : "Unknown";
+  row.innerHTML = `
+    <div class="file-main">
+      <strong>${escapeHtml(file.file_name)}</strong>
+      <span>${escapeHtml(file.file_path)}</span>
+    </div>
+    <div class="file-meta">${escapeHtml(file.file_type || "file")} - ${file.chunk_count} chunks - ${escapeHtml(modified)}</div>
+  `;
+  row.appendChild(removeButton(file.file_path, "Remove file from index"));
+  return row;
+}
+
+async function setRuntimeMode(gpuLayers) {
+  runtimeGpuButton.disabled = true;
+  runtimeCpuButton.disabled = true;
+  runtimeModeMessage.textContent = "Switching runtime mode...";
+  try {
+    const response = await fetch("/api/runtime", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ gpu_layers: gpuLayers }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || "Runtime switch failed.");
+    }
+    runtimeModeDetail.textContent = runtimeModeLabel(data.gpu_mode);
+    runtimeModeMessage.textContent = data.gpu_message || data.message;
+    await refreshStatus();
+  } catch (error) {
+    runtimeModeMessage.textContent = error.message;
+  } finally {
+    runtimeGpuButton.disabled = false;
+    runtimeCpuButton.disabled = false;
+  }
+}
+
+async function useModelPath(path) {
+  if (!path) {
+    modelDetail.textContent = "Choose a model first.";
+    return;
+  }
+
+  selectModelButton.disabled = true;
+  manualModelButton.disabled = true;
+  modelDetail.textContent = "Switching model...";
+  try {
+    const response = await fetch("/api/model", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || "Model switch failed.");
+    }
+    modelDetail.textContent = data.runtime.message;
+    await refreshStatus();
+  } catch (error) {
+    modelDetail.textContent = error.message;
+  } finally {
+    selectModelButton.disabled = false;
+    manualModelButton.disabled = false;
+  }
+}
+
+async function downloadModel(modelId, button) {
+  button.disabled = true;
+  downloadStatus.textContent = "Downloading model. This can take a while...";
+  try {
+    const response = await fetch("/api/model/download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: modelId }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || "Download failed.");
+    }
+    downloadStatus.textContent = `${data.model.name} is ready. ${data.runtime.message}`;
+    await refreshStatus();
+    await loadModelFilesystem();
+  } catch (error) {
+    downloadStatus.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function quitApp() {
+  try {
+    await fetch("/api/shutdown", { method: "POST" });
+  } catch (error) {
+    // The server may close before the browser receives the response.
+  }
+  window.close();
+  document.body.innerHTML = `
+    <main class="closed-screen">
+      <img src="/icons/icon_round.png" alt="" aria-hidden="true" />
+      <h1>FerretRAG is closing.</h1>
+      <p>You can close this tab.</p>
+    </main>
+  `;
+}
+
+function removeButton(path, title) {
   const remove = document.createElement("button");
   remove.className = "icon-button";
   remove.type = "button";
   remove.textContent = "X";
-  remove.title = isRoot ? "Remove folder from index" : "Remove file from index";
+  remove.title = title;
   remove.addEventListener("click", () => removeFromIndex(path));
-
-  wrapper.append(text, remove);
-  return wrapper;
+  return remove;
 }
 
 async function removeFromIndex(path) {
@@ -143,6 +520,48 @@ async function removeFromIndex(path) {
   }
   indexStatus.textContent = `${data.files_removed} files removed, ${data.chunks_removed} chunks removed.`;
   await refreshStatus();
+}
+
+async function indexPaths(paths) {
+  if (!paths.length) {
+    indexStatus.textContent = "Choose files or folders first.";
+    return;
+  }
+
+  setIndexButtonsDisabled(true);
+  indexStatus.textContent = `Indexing ${paths.length} item${paths.length === 1 ? "" : "s"}...`;
+  const totals = { indexed: 0, skipped: 0, failed: 0 };
+  try {
+    for (const path of paths) {
+      const response = await fetch("/api/index", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || "Indexing failed.");
+      }
+      totals.indexed += data.files_indexed;
+      totals.skipped += data.files_skipped;
+      totals.failed += data.files_failed;
+    }
+    indexStatus.textContent = `${totals.indexed} indexed, ${totals.skipped} skipped, ${totals.failed} failed.`;
+    selectedPaths.clear();
+    await refreshStatus();
+    if (filesystemState) {
+      renderFilesystem(filesystemState);
+    }
+  } catch (error) {
+    indexStatus.textContent = error.message;
+  } finally {
+    setIndexButtonsDisabled(false);
+  }
+}
+
+function setIndexButtonsDisabled(isDisabled) {
+  indexSelectedButton.disabled = isDisabled || selectedPaths.size === 0;
+  manualIndexButton.disabled = isDisabled;
 }
 
 function renderSources(items) {
@@ -173,36 +592,33 @@ function renderSources(items) {
   }
 }
 
-indexButton.addEventListener("click", async () => {
-  const path = folderPath.value.trim();
-  if (!path) {
-    indexStatus.textContent = "Enter a folder path first.";
-    return;
-  }
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (char) => {
+    const entities = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+    return entities[char];
+  });
+}
 
-  indexButton.disabled = true;
-  indexStatus.textContent = "Indexing folder...";
-  try {
-    const response = await fetch("/api/index", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path }),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.detail || "Indexing failed.");
-    }
-    indexStatus.textContent = `${data.files_indexed} indexed, ${data.files_skipped} skipped, ${data.files_failed} failed.`;
-    if (data.failures?.length) {
-      indexStatus.textContent += ` First failure: ${data.failures[0].error}`;
-    }
-    await refreshStatus();
-  } catch (error) {
-    indexStatus.textContent = error.message;
-  } finally {
-    indexButton.disabled = false;
+window.addEventListener("hashchange", renderView);
+refreshHealth.addEventListener("click", refreshStatus);
+refreshIndexButton.addEventListener("click", refreshStatus);
+goHomeButton.addEventListener("click", () => loadFilesystem());
+goParentButton.addEventListener("click", () => {
+  if (filesystemState?.parent_path) {
+    loadFilesystem(filesystemState.parent_path);
   }
 });
+modelGoParentButton.addEventListener("click", () => {
+  if (modelFilesystemState?.parent_path) {
+    loadModelFilesystem(modelFilesystemState.parent_path);
+  }
+});
+indexSelectedButton.addEventListener("click", () => indexPaths([...selectedPaths]));
+manualIndexButton.addEventListener("click", () => indexPaths([manualPath.value.trim()].filter(Boolean)));
+runtimeGpuButton.addEventListener("click", () => setRuntimeMode("auto"));
+runtimeCpuButton.addEventListener("click", () => setRuntimeMode(0));
+manualModelButton.addEventListener("click", () => useModelPath(manualModelPath.value.trim()));
+quitAppButton.addEventListener("click", quitApp);
 
 chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -239,38 +655,13 @@ chatForm.addEventListener("submit", async (event) => {
 });
 
 selectModelButton.addEventListener("click", async () => {
-  const path = modelSelect.value;
-  if (!path) {
-    modelDetail.textContent = "Choose a model first.";
-    return;
-  }
-
-  selectModelButton.disabled = true;
-  modelDetail.textContent = "Switching model...";
-  try {
-    const response = await fetch("/api/model", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path }),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.detail || "Model switch failed.");
-    }
-    modelDetail.textContent = data.runtime.message;
-    await refreshStatus();
-  } catch (error) {
-    modelDetail.textContent = error.message;
-  } finally {
-    selectModelButton.disabled = false;
-  }
+  await useModelPath(modelSelect.value);
 });
 
 copyAnswerButton.addEventListener("click", async () => {
-  if (!lastAnswer) {
-    return;
+  if (lastAnswer) {
+    await navigator.clipboard.writeText(lastAnswer);
   }
-  await navigator.clipboard.writeText(lastAnswer);
 });
 
 clearChatButton.addEventListener("click", () => {
@@ -279,5 +670,9 @@ clearChatButton.addEventListener("click", () => {
   lastAnswer = "";
 });
 
-refreshHealth.addEventListener("click", refreshStatus);
+renderView();
+updateSelectionSummary();
+loadFilesystem();
+loadModelFilesystem();
+refreshModelCatalog();
 refreshStatus();
