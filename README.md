@@ -1,6 +1,6 @@
 # FerretRAG
 
-FerretRAG is a privacy-first local RAG app for chatting with folders on your machine. The first milestone is a small working MVP: index local documents, retrieve relevant chunks, and chat through a local model.
+FerretRAG is a privacy-first local RAG app for chatting with folders on your machine. The current release-candidate scope indexes local documents, retrieves relevant chunks, manages local GGUF models, and chats through a local model when a compatible runtime is installed.
 
 ## Local-Only Promise
 
@@ -142,10 +142,10 @@ Install PyInstaller into this project venv before packaging:
 
 ## Recommended Next Milestones
 
-1. Validate the Windows packaging script on a clean machine.
+1. Validate the Windows executable on a clean machine.
 2. Polish model selection persistence.
 3. Decide whether a bundled compatible GGUF is allowed for release.
-4. Choose a GPU strategy after the CPU release candidate is stable.
+4. Validate GPU runtime installation on NVIDIA, AMD, and Intel Windows machines.
 
 ## Model File
 
@@ -165,3 +165,5 @@ verify the model license and redistribution terms.
 - Incremental file indexing based on SHA-256 hashes.
 - TXT, MD, HTML, CSV, PDF, DOCX, and XLSX parsing.
 - Chroma-backed vector search when available, with a local JSON keyword fallback for early development.
+- Local GGUF model registry, model switching, and automatic CPU/GPU layer selection.
+- Indexed folder/file visibility with remove-from-index controls.
